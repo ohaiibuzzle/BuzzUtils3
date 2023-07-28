@@ -6,8 +6,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/ohaiibuzzle/BuzzUtils3/bot"
-	"github.com/ohaiibuzzle/BuzzUtils3/config"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/bot"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
 )
 
 func main() {

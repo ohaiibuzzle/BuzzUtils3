@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/ohaiibuzzle/BuzzUtils3/config"
-	imageclassifier "github.com/ohaiibuzzle/BuzzUtils3/imageClassifier"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
+	imageclassifier "github.com/ohaiibuzzle/BuzzUtils3/src/imageClassifier"
 )
 
 var botContext *discordgo.Session

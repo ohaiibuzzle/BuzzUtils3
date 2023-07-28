@@ -20,7 +20,7 @@ var model *tflite.Model
 var interpreter *tflite.Interpreter
 
 func InitializeModel() {
-	model = tflite.NewModelFromFile("config/model.tflite")
+	model = tflite.NewModelFromFile("runtime/model.tflite")
 	interpreter = tflite.NewInterpreter(model, nil)
 }
 

@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/ohaiibuzzle/BuzzUtils3/config"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
 )
 
 type SafebooruPosts struct {

@@ -4,11 +4,11 @@ import (
 	"log"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/ohaiibuzzle/BuzzUtils3/config"
-	"github.com/ohaiibuzzle/BuzzUtils3/getimages"
-	imageclassifier "github.com/ohaiibuzzle/BuzzUtils3/imageClassifier"
-	"github.com/ohaiibuzzle/BuzzUtils3/saucefinder"
-	"github.com/ohaiibuzzle/BuzzUtils3/utils"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/getimages"
+	imageclassifier "github.com/ohaiibuzzle/BuzzUtils3/src/imageClassifier"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/saucefinder"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/utils"
 	"golang.org/x/exp/slices"
 )
 

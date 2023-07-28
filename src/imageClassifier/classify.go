@@ -7,7 +7,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/nfnt/resize"
-	"github.com/ohaiibuzzle/BuzzUtils3/saucefinder"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/saucefinder"
 )
 
 type Predictions struct {

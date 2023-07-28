@@ -3,7 +3,7 @@ package saucefinder
 import (
 	"github.com/GenDoNL/saucenao-go"
 	"github.com/bwmarrin/discordgo"
-	"github.com/ohaiibuzzle/BuzzUtils3/config"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
 )
 
 func GetImagesFromMessages(message *discordgo.Message) ([]string, error) {

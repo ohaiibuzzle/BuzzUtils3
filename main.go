@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	config.LoadConfig("runtime/config.json")
+	config.LoadConfig("runtime/config.yaml")
 
 	bot.InitContext()
 	bot.RegisterHandlers(bot.GetContext())

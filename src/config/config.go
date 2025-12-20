@@ -1,15 +1,17 @@
 package config
 
 import (
-	"encoding/json"
 	"log"
 	"os"
+
+	"github.com/goccy/go-yaml"
 )
 
 type configration struct {
-	Token          string // Discord bot token
-	BotPrefix      string // Bot prefix
-	SauceNaoAPIKey string // SauceNao API key
+	Token          string `yaml:"token"`            // Bot token
+	BotPrefix      string `yaml:"bot_prefix"`       // Bot prefix
+	SauceNaoAPIKey string `yaml:"saucenao_api_key"` // SauceNao API key
+	UserAgent      string `yaml:"user_agent"`       // User agent for HTTP requests
 }
 
 var config *configration
@@ -24,7 +26,8 @@ func LoadConfig(configFile string) error {
 
 	// Decode the json config file
 	config = &configration{}
-	err = json.NewDecoder(file).Decode(config)
+	decoder := yaml.NewDecoder(file)
+	err = decoder.Decode(config)
 
 	log.Default().Println("Using prefix: " + config.BotPrefix)
 

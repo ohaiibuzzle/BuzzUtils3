@@ -7,6 +7,7 @@ import (
 	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/getimages"
 	imageclassifier "github.com/ohaiibuzzle/BuzzUtils3/src/imageClassifier"
+	messagesutils "github.com/ohaiibuzzle/BuzzUtils3/src/messagesUtils"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/saucefinder"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/utils"
 	"golang.org/x/exp/slices"
@@ -41,7 +42,7 @@ func OnMessageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	// Split command
 	command, args := splitCommand(m.Content[len(prefix):])
-	// log.Default().Println("User " + m.Author.Username + " issued command: " + command)
+	log.Default().Println("User " + m.Author.Username + " issued command: " + command)
 
 	if slices.Contains(utils.Commands, command) {
 		go utils.ProcessCommands(command, args, m, s)
@@ -60,6 +61,11 @@ func OnMessageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	if slices.Contains(imageclassifier.Commands, command) {
 		go imageclassifier.ProcessCommands(command, args, m, s)
+		return
+	}
+
+	if slices.Contains(messagesutils.Commands, command) {
+		go messagesutils.ProcessCommands(command, args, m, s)
 		return
 	}
 

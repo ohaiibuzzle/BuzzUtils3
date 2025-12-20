@@ -10,8 +10,8 @@ var Commands = []string{
 func ProcessCommands(command string, args []string, msg *discordgo.MessageCreate, ctx *discordgo.Session) {
 	switch command {
 	case "zerochan":
-		Zerochan(msg, ctx)
+		go Zerochan(msg, ctx)
 	case "safebooru":
-		Safebooru(msg, ctx)
+		go Safebooru(msg, ctx)
 	}
 }

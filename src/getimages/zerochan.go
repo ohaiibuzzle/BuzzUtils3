@@ -2,16 +2,14 @@ package getimages
 
 import (
 	"encoding/json"
-	"errors"
-	"io"
 	"log"
 	"math/rand"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
 )
 
 type ZerochanDetailedResult struct {
@@ -47,12 +45,12 @@ func Zerochan(msg *discordgo.MessageCreate, ctx *discordgo.Session) {
 	// Get the arguments
 	args := strings.Split(msg.Content, " ")
 	if len(args) < 2 {
-		ctx.ChannelMessageSend(msg.ChannelID, "You need to specify a search term!")
+		ctx.ChannelMessageSendReply(msg.ChannelID, "You need to specify a search term!", msg.Reference())
 		return
 	}
 
-	// Get the search term
-	searchTerm := strings.Join(args[1:], " ")
+	// Join the arguments first
+	searchTerm := strings.ReplaceAll(strings.Join(args[1:], " "), "+", ",")
 
 	// Get the image
 	embed, err := getZerochanImage(searchTerm)
@@ -62,7 +60,7 @@ func Zerochan(msg *discordgo.MessageCreate, ctx *discordgo.Session) {
 	}
 
 	// Send the image
-	ctx.ChannelMessageSendEmbed(msg.ChannelID, embed)
+	ctx.ChannelMessageSendEmbedReply(msg.ChannelID, embed, msg.Reference())
 }
 
 func getZerochanImage(searchTerm string) (*discordgo.MessageEmbed, error) {
@@ -78,20 +76,7 @@ func getZerochanImage(searchTerm string) (*discordgo.MessageEmbed, error) {
 }
 
 func getZerochanResult(searchTerm string) (*ZerochanResult, error) {
-	// https://www.zerochan.net/Keqing?page=1&limit=1&json
-
-	// Get the image count
-	imageCount, err := getZerochanImageCount(searchTerm)
-	if err != nil {
-		log.Default().Println("Error getting image count: " + err.Error())
-		return nil, err
-	}
-
-	// Select a random image
-	imageIndex := rand.Intn(imageCount)
-
-	// Get the result
-	result, err := getZerochanResultPage(searchTerm, imageIndex)
+	result, err := getZerochanResultPage(searchTerm)
 
 	if err != nil {
 		log.Default().Println("Error getting result: " + err.Error())
@@ -101,19 +86,15 @@ func getZerochanResult(searchTerm string) (*ZerochanResult, error) {
 	return result, nil
 }
 
-func getZerochanResultPage(searchTerm string, imageIndex int) (*ZerochanResult, error) {
+func getZerochanResultPage(searchTerm string) (*ZerochanResult, error) {
 	// https://www.zerochan.net/Keqing?page=1&limit=1&json
 
-	// Math
-	page := imageIndex / 100
-	indexInPage := imageIndex % 100
-
-	req, err := http.NewRequest("GET", "https://www.zerochan.net/"+searchTerm+"?page="+strconv.Itoa(page)+"&l=100&json", nil)
+	req, err := http.NewRequest("GET", "https://www.zerochan.net/"+searchTerm+"?l=200&s=id&json", nil)
 	if err != nil {
 		log.Default().Println("Error making request: " + err.Error())
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Firefox/110.0 (Windows NT 10.0; Win64; x64)")
+	req.Header.Set("User-Agent", config.GetConfig().UserAgent)
 
 	jsonResp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -126,69 +107,21 @@ func getZerochanResultPage(searchTerm string, imageIndex int) (*ZerochanResult, 
 	var results ZerochanResults
 	err = decoder.Decode(&results)
 
+	totalImageCount := len(results.Items)
+	if totalImageCount == 0 {
+		return nil, nil
+	}
+
+	// Get a random index
+	postIndex := rand.Intn(totalImageCount)
+	indexInPage := postIndex % totalImageCount
+
 	if err != nil {
 		log.Default().Println("Error unmarshalling json: " + err.Error())
 		return nil, err
 	}
 
 	return &results.Items[indexInPage], nil
-}
-
-func getZerochanImageCount(searchTerm string) (int, error) {
-	// Unfortunately we have to read the old xml api to get the image count
-	// (Zerochan has <number> <tag> anime images, wallpapers, fanart, and many more in its gallery.)
-	// https://www.zerochan.net/Keqing?xml
-
-	req, err := http.NewRequest("GET", "https://www.zerochan.net/"+searchTerm+"?xml", nil)
-	if err != nil {
-		log.Default().Println("Error creating request: " + err.Error())
-		return 0, err
-	}
-	req.Header.Set("User-Agent", "Firefox/110.0 (Windows NT 10.0; Win64; x64)")
-
-	// Get the xml
-	xmlResponse, err := http.DefaultClient.Do(req)
-	if err != nil {
-		log.Default().Println("Error getting xml: " + err.Error())
-		return 0, err
-	}
-
-	xmlContent, err := io.ReadAll(xmlResponse.Body)
-	if err != nil {
-		log.Default().Println("Error reading xml: " + err.Error())
-		return 0, err
-	}
-
-	// regex to get the image count (number format 2,429,947)
-	descriptionRegex := regexp.MustCompile(`<description>([\s\S]*)<\/description>`)
-	imageCountRegex := regexp.MustCompile(`[(\d{0,3}),]+`)
-
-	// Get the description
-	description := descriptionRegex.FindStringSubmatch(string(xmlContent))
-	if len(description) < 1 {
-		log.Default().Println("Error finding description")
-		return 0, errors.New("error finding description")
-	}
-
-	// Get the image count
-	imageCount := imageCountRegex.FindStringSubmatch(description[0])
-
-	// Convert the image count to an int
-	// First remove the commas
-	imageCountString := strings.ReplaceAll(imageCount[0], ",", "")
-	// Then convert to an int
-	imageCountInt, err := strconv.Atoi(imageCountString)
-	if err != nil {
-		log.Default().Println("Error converting image count to int: " + err.Error())
-		return 0, err
-	}
-
-	// Set an upper limit (else the API explodes) of 1000
-	if imageCountInt > 1000 {
-		imageCountInt = 1000
-	}
-
-	return imageCountInt, nil
 }
 
 func makeZerochanEmbed(result *ZerochanResult, msg *discordgo.MessageCreate, ctx *discordgo.Session) *discordgo.MessageEmbed {
@@ -198,7 +131,7 @@ func makeZerochanEmbed(result *ZerochanResult, msg *discordgo.MessageCreate, ctx
 		return nil
 	}
 
-	res.Header.Set("User-Agent", "Firefox/110.0 (Windows NT 10.0; Win64; x64)")
+	res.Header.Set("User-Agent", config.GetConfig().UserAgent)
 
 	// Get the json
 	jsonResp, err := http.DefaultClient.Do(res)

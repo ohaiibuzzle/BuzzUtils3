@@ -1,25 +1,49 @@
 package imageclassifier
 
 import (
-	"image"
+	"bytes"
+	"encoding/json"
+	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
+	"strconv"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/nfnt/resize"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/saucefinder"
 )
 
 type Predictions struct {
-	Drawing float32
-	Hentai  float32
-	Neutral float32
-	Porn    float32
-	Sexy    float32
+	Drawing float32 `json:"drawings"`
+	Hentai  float32 `json:"hentai"`
+	Neutral float32 `json:"neutral"`
+	Porn    float32 `json:"porn"`
+	Sexy    float32 `json:"sexy"`
+}
+
+func formatFloat(f float32) string {
+	return strconv.FormatFloat(float64(f*100), 'f', 2, 32) + "%"
 }
 
 func PredictCommand(args []string, msg *discordgo.MessageCreate, ctx *discordgo.Session) {
-	images, err := saucefinder.GetImagesFromMessages(msg.ReferencedMessage)
+	var images []string
+	var err error
+
+	if msg.ReferencedMessage == nil {
+		target, err := saucefinder.GetLastMessageWithAttachments(msg.ChannelID, ctx)
+		if err != nil {
+			log.Default().Println("Error getting last message with attachments: ", err)
+			return
+		}
+		if target == nil {
+			log.Default().Println("No message with attachments found")
+			return
+		}
+		images, err = saucefinder.GetImagesFromMessages(target)
+	} else {
+		images, err = saucefinder.GetImagesFromMessages(msg.ReferencedMessage)
+	}
+
 	if err != nil {
 		log.Default().Println("Error getting images: ", err)
 		return
@@ -32,73 +56,96 @@ func PredictCommand(args []string, msg *discordgo.MessageCreate, ctx *discordgo.
 
 	firstImage := images[0]
 
-	FromUrl(firstImage)
+	predictChan := make(chan *Predictions)
+	go func() {
+		res, err := FromUrl(firstImage)
+		if err != nil {
+			log.Default().Println("Error predicting image: ", err)
+			return
+		}
+		predictChan <- res
+	}()
+
+	predictions := <-predictChan
+
+	embed := &discordgo.MessageEmbed{
+		Title: "Image Classification Results",
+		Fields: []*discordgo.MessageEmbedField{
+			{
+				Name:   "Drawings",
+				Value:  formatFloat(predictions.Drawing),
+				Inline: true,
+			},
+			{
+				Name:   "Hentai",
+				Value:  formatFloat(predictions.Hentai),
+				Inline: true,
+			},
+			{
+				Name:   "Neutral",
+				Value:  formatFloat(predictions.Neutral),
+				Inline: true,
+			},
+			{
+				Name:   "Porn",
+				Value:  formatFloat(predictions.Porn),
+				Inline: true,
+			},
+			{
+				Name:   "Sexy",
+				Value:  formatFloat(predictions.Sexy),
+				Inline: true,
+			},
+		},
+	}
+
+	ctx.ChannelMessageSendEmbedReply(msg.ChannelID, embed, msg.Reference())
 }
 
-func FromUrl(url string) (string, error) {
-	tensor, err := downloadImageToArray(url)
+func FromUrl(url string) (*Predictions, error) {
+	client := &http.Client{}
+	// Download the image
+	imageData, err := client.Get(url)
 
 	if err != nil {
-		return "", err
-	}
-
-	interpreter := GetInterpreter()
-	interpreter.AllocateTensors()
-
-	input := interpreter.GetInputTensor(0)
-	input.CopyFromBuffer(tensor)
-	interpreter.Invoke()
-
-	output := interpreter.GetOutputTensor(0)
-	outputData := output.Float32s()
-
-	predictions := Predictions{
-		Drawing: outputData[0],
-		Hentai:  outputData[1],
-		Neutral: outputData[2],
-		Porn:    outputData[3],
-		Sexy:    outputData[4],
-	}
-
-	log.Default().Println(predictions)
-
-	return "test", nil
-}
-
-func downloadImageToArray(url string) ([]float32, error) {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		log.Default().Println("Error creating request: ", err)
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	defer imageData.Body.Close()
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	part, err := writer.CreateFormFile("file", "image.jpg")
 	if err != nil {
-		log.Default().Println("Error downloading image: ", err)
+		return nil, err
+	}
+	_, err = io.Copy(part, imageData.Body)
+	if err != nil {
+		return nil, err
+	}
+	err = writer.Close()
+	if err != nil {
 		return nil, err
 	}
 
+	req, err := http.NewRequest("POST", "http://192.168.64.28:8000/classify", body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
 	defer resp.Body.Close()
 
-	img, _, err := image.Decode(resp.Body)
+	// Deserialize the JSON response
+	predictions := &Predictions{}
+	err = json.NewDecoder(resp.Body).Decode(predictions)
 	if err != nil {
-		log.Default().Println("Error decoding image: ", err)
 		return nil, err
 	}
 
-	IMAGE_DIM := 299
-	// Resize the image
-	resizedImage := resize.Resize(uint(IMAGE_DIM), uint(IMAGE_DIM), img, resize.NearestNeighbor)
-
-	// Convert the image to a tensor (range 0-1)
-	tensor := make([]float32, IMAGE_DIM*IMAGE_DIM*3)
-	for y := 0; y < IMAGE_DIM; y++ {
-		for x := 0; x < IMAGE_DIM; x++ {
-			r, g, b, _ := resizedImage.At(x, y).RGBA()
-			tensor[(y*IMAGE_DIM+x)*3+0] = float32(r) / 255.0
-			tensor[(y*IMAGE_DIM+x)*3+1] = float32(g) / 255.0
-			tensor[(y*IMAGE_DIM+x)*3+2] = float32(b) / 255.0
-		}
-	}
-
-	return tensor, nil
+	return predictions, nil
 }

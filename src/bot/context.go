@@ -7,7 +7,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
-	imageclassifier "github.com/ohaiibuzzle/BuzzUtils3/src/imageClassifier"
 )
 
 var botContext *discordgo.Session
@@ -15,11 +14,10 @@ var botContext *discordgo.Session
 func InitContext() error {
 	var err error
 	botContext, err = discordgo.New("Bot " + config.GetConfig().Token)
-	botContext.Identify.Intents = discordgo.IntentsAllWithoutPrivileged | discordgo.IntentsGuildMembers | discordgo.IntentMessageContent
+	botContext.Identify.Intents = discordgo.IntentsAllWithoutPrivileged | discordgo.IntentsGuildMembers | discordgo.IntentMessageContent | discordgo.IntentGuilds
 
 	// Seed the rng
 	rand.Seed(time.Now().UnixNano())
-	imageclassifier.InitializeModel()
 
 	return err
 }

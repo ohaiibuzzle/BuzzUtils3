@@ -44,6 +44,13 @@ func OnMessageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	command, args := splitCommand(m.Content[len(prefix):])
 	log.Default().Println("User " + m.Author.Username + " issued command: " + command)
 
+	// Set the status to typing
+	err := s.ChannelTyping(m.ChannelID)
+	if err != nil {
+		log.Default().Println("Error setting typing status: ", err)
+	}
+
+	// Process command
 	if slices.Contains(utils.Commands, command) {
 		go utils.ProcessCommands(command, args, m, s)
 		return

@@ -1,0 +1,15 @@
+volume:
+  buzzutils3-data:
+
+services:
+  buzzutils3:
+    image: ghcr.io/ohaiibuzzle/buzzutils3:latest
+    container_name: buzzutils3
+    restart: unless-stopped
+  
+  inference-server:
+    image: ghcr.io/ohaiibuzzle/buzzutils3-classifier  :latest
+    container_name: buzzutils3-inference-server
+    restart: unless-stopped
+    volumes:
+      - buzzutils3-data:/app/data

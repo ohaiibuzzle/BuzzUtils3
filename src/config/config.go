@@ -8,10 +8,11 @@ import (
 )
 
 type configration struct {
-	Token          string `yaml:"token"`            // Bot token
-	BotPrefix      string `yaml:"bot_prefix"`       // Bot prefix
-	SauceNaoAPIKey string `yaml:"saucenao_api_key"` // SauceNao API key
-	UserAgent      string `yaml:"user_agent"`       // User agent for HTTP requests
+	Token           string `yaml:"token"`            // Bot token
+	BotPrefix       string `yaml:"bot_prefix"`       // Bot prefix
+	SauceNaoAPIKey  string `yaml:"saucenao_api_key"` // SauceNao API key
+	UserAgent       string `yaml:"user_agent"`       // User agent for HTTP requests
+	InferenceServer string `yaml:"inference_server"` // Inference server URL
 }
 
 var config *configration

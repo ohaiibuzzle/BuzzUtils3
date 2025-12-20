@@ -3,6 +3,7 @@ package imageclassifier
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"mime/multipart"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/saucefinder"
 )
 
@@ -103,6 +105,8 @@ func PredictCommand(args []string, msg *discordgo.MessageCreate, ctx *discordgo.
 }
 
 func FromUrl(url string) (*Predictions, error) {
+	var inferenceServerURL = fmt.Sprintf("%s/classify", config.GetConfig().InferenceServer)
+
 	client := &http.Client{}
 	// Download the image
 	imageData, err := client.Get(url)
@@ -127,7 +131,7 @@ func FromUrl(url string) (*Predictions, error) {
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", "http://192.168.64.28:8000/classify", body)
+	req, err := http.NewRequest("POST", inferenceServerURL, body)
 	if err != nil {
 		return nil, err
 	}

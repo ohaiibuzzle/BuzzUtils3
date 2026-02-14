@@ -1,4 +1,4 @@
-FROM golang:1.24 as builder
+FROM golang:1.26 as builder
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o buzzutils3 ./src/main.go
 

@@ -16,6 +16,7 @@ import (
 	_ "github.com/ohaiibuzzle/BuzzUtils3/src/fun"
 	_ "github.com/ohaiibuzzle/BuzzUtils3/src/getimages"
 	_ "github.com/ohaiibuzzle/BuzzUtils3/src/imageClassifier"
+	_ "github.com/ohaiibuzzle/BuzzUtils3/src/music"
 	_ "github.com/ohaiibuzzle/BuzzUtils3/src/nsfwrole"
 	_ "github.com/ohaiibuzzle/BuzzUtils3/src/saucefinder"
 	_ "github.com/ohaiibuzzle/BuzzUtils3/src/utils"

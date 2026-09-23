@@ -19,21 +19,35 @@ type Button struct {
 	Value string
 }
 
-type buttonWaiter struct {
+// Choice is one entry of a select menu prompt.
+type Choice struct {
+	Label       string
+	Description string
+	Value       string
+}
+
+// waiter is an open prompt. components rebuilds its message components, so they
+// can be disabled once the prompt is answered or expires.
+type waiter struct {
 	allowedUser snowflake.ID
-	buttons     []Button
+	components  func(disabled bool) []discord.LayoutComponent
 	result      chan string
 }
 
 var (
 	waitersMu sync.Mutex
-	waiters   = map[string]*buttonWaiter{}
+	waiters   = map[string]*waiter{}
 )
 
 // Ask sends a message with buttons as the command's response and waits for
 // allowedUser to click one. It returns the clicked button's Value, or false on timeout.
 func (c *Ctx) Ask(ms discord.MessageCreate, allowedUser snowflake.ID, buttons []Button, timeout time.Duration) (string, bool) {
-	return ask(c.Client, c.Send, ms, allowedUser, buttons, timeout)
+	return ask(c.Client, c.Send, ms, allowedUser, buttonComponents(buttons), timeout)
+}
+
+// AskChoice is like Ask, but with a select menu.
+func (c *Ctx) AskChoice(ms discord.MessageCreate, allowedUser snowflake.ID, placeholder string, choices []Choice, timeout time.Duration) (string, bool) {
+	return ask(c.Client, c.Send, ms, allowedUser, selectComponents(placeholder, choices), timeout)
 }
 
 // AskInChannel is like Ask, but posts to an arbitrary channel (e.g. a DM).
@@ -41,12 +55,17 @@ func AskInChannel(client *bot.Client, channelID snowflake.ID, ms discord.Message
 	send := func(ms discord.MessageCreate) (*discord.Message, error) {
 		return client.Rest.CreateMessage(channelID, ms)
 	}
-	return ask(client, send, ms, allowedUser, buttons, timeout)
+	return ask(client, send, ms, allowedUser, buttonComponents(buttons), timeout)
 }
 
-func ask(client *bot.Client, send func(discord.MessageCreate) (*discord.Message, error), ms discord.MessageCreate, allowedUser snowflake.ID, buttons []Button, timeout time.Duration) (string, bool) {
+func ask(client *bot.Client, send func(discord.MessageCreate) (*discord.Message, error), ms discord.MessageCreate,
+	allowedUser snowflake.ID, components func(id string, disabled bool) []discord.LayoutComponent, timeout time.Duration) (string, bool) {
 	id := newID()
-	w := &buttonWaiter{allowedUser: allowedUser, buttons: buttons, result: make(chan string, 1)}
+	w := &waiter{
+		allowedUser: allowedUser,
+		components:  func(disabled bool) []discord.LayoutComponent { return components(id, disabled) },
+		result:      make(chan string, 1),
+	}
 	waitersMu.Lock()
 	waiters[id] = w
 	waitersMu.Unlock()
@@ -56,7 +75,7 @@ func ask(client *bot.Client, send func(discord.MessageCreate) (*discord.Message,
 		waitersMu.Unlock()
 	}()
 
-	ms.Components = buttonRow(id, buttons, false)
+	ms.Components = w.components(false)
 	msg, err := send(ms)
 	if err != nil {
 		return "", false
@@ -67,17 +86,21 @@ func ask(client *bot.Client, send func(discord.MessageCreate) (*discord.Message,
 		return value, true
 	case <-time.After(timeout):
 		if msg != nil {
-			components := buttonRow(id, buttons, true)
-			client.Rest.UpdateMessage(msg.ChannelID, msg.ID, discord.MessageUpdate{Components: &components})
+			disabled := w.components(true)
+			client.Rest.UpdateMessage(msg.ChannelID, msg.ID, discord.MessageUpdate{Components: &disabled})
 		}
 		return "", false
 	}
 }
 
 func handleComponent(e *events.ComponentInteractionCreate) {
+	// Buttons carry their value in the custom ID ("id:value"); select menus send it
 	id, value, found := strings.Cut(e.Data.CustomID(), ":")
 	if !found {
 		return
+	}
+	if data, ok := e.Data.(discord.StringSelectMenuInteractionData); ok && len(data.Values) > 0 {
+		value = data.Values[0]
 	}
 
 	waitersMu.Lock()
@@ -94,8 +117,8 @@ func handleComponent(e *events.ComponentInteractionCreate) {
 		return
 	}
 
-	// Disable the buttons now that a choice has been made
-	disabled := buttonRow(id, w.buttons, true)
+	// Disable the prompt now that a choice has been made
+	disabled := w.components(true)
 	e.UpdateMessage(discord.MessageUpdate{Components: &disabled})
 
 	select {
@@ -104,21 +127,41 @@ func handleComponent(e *events.ComponentInteractionCreate) {
 	}
 }
 
-func buttonRow(id string, buttons []Button, disabled bool) []discord.LayoutComponent {
-	var row []discord.InteractiveComponent
-	for _, b := range buttons {
-		style := b.Style
-		if style == 0 {
-			style = discord.ButtonStylePrimary
+func buttonComponents(buttons []Button) func(id string, disabled bool) []discord.LayoutComponent {
+	return func(id string, disabled bool) []discord.LayoutComponent {
+		var row []discord.InteractiveComponent
+		for _, b := range buttons {
+			style := b.Style
+			if style == 0 {
+				style = discord.ButtonStylePrimary
+			}
+			row = append(row, discord.ButtonComponent{
+				Label:    b.Label,
+				Style:    style,
+				CustomID: id + ":" + b.Value,
+				Disabled: disabled,
+			})
 		}
-		row = append(row, discord.ButtonComponent{
-			Label:    b.Label,
-			Style:    style,
-			CustomID: id + ":" + b.Value,
-			Disabled: disabled,
-		})
+		return []discord.LayoutComponent{discord.NewActionRow(row...)}
 	}
-	return []discord.LayoutComponent{discord.NewActionRow(row...)}
+}
+
+func selectComponents(placeholder string, choices []Choice) func(id string, disabled bool) []discord.LayoutComponent {
+	return func(id string, disabled bool) []discord.LayoutComponent {
+		menu := discord.StringSelectMenuComponent{
+			CustomID:    id + ":",
+			Placeholder: placeholder,
+			Disabled:    disabled,
+		}
+		for _, choice := range choices {
+			menu.Options = append(menu.Options, discord.StringSelectMenuOption{
+				Label:       truncate(choice.Label, 100),
+				Description: truncate(choice.Description, 100),
+				Value:       choice.Value,
+			})
+		}
+		return []discord.LayoutComponent{discord.NewActionRow(menu)}
+	}
 }
 
 func newID() string {

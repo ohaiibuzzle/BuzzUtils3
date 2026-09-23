@@ -8,6 +8,8 @@ import (
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/cache"
 	"github.com/disgoorg/disgo/gateway"
+	"github.com/disgoorg/disgo/voice"
+	"github.com/disgoorg/godave/golibdave"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
 )
 
@@ -21,8 +23,11 @@ func InitContext() error {
 			gateway.WithPresenceOpts(gateway.WithPlayingActivity("in Buzzle's Box. Available on GitHub")),
 		),
 		// Only what the commands look up: guild names, channel NSFW flags and
-		// permission overwrites, and roles for permission checks
-		bot.WithCacheConfigOpts(cache.WithCaches(cache.FlagGuilds, cache.FlagChannels, cache.FlagRoles)),
+		// permission overwrites, roles for permission checks, and who is in which
+		// voice channel for music
+		bot.WithCacheConfigOpts(cache.WithCaches(cache.FlagGuilds, cache.FlagChannels, cache.FlagRoles, cache.FlagVoiceStates)),
+		// Discord requires end-to-end encrypted voice (DAVE), done by libdave
+		bot.WithVoiceManagerConfigOpts(voice.WithDaveSessionCreateFunc(golibdave.NewSession)),
 		// Run each event in its own goroutine (like discordgo), so slow handlers such
 		// as the welcome card don't hold up the gateway
 		bot.WithEventManagerConfigOpts(bot.WithAsyncEventsEnabled()),

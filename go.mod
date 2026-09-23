@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/GenDoNL/saucenao-go v0.0.0-20180704084938-ef65de822d6b
 	github.com/disgoorg/disgo v0.19.6
+	github.com/disgoorg/godave/golibdave v0.3.0
 	github.com/disgoorg/omit v1.0.0
 	github.com/disgoorg/snowflake/v2 v2.0.3
 	github.com/goccy/go-yaml v1.19.2
@@ -14,7 +15,8 @@ require (
 )
 
 require (
-	github.com/disgoorg/godave v0.1.0 // indirect
+	github.com/disgoorg/godave v0.3.0 // indirect
+	github.com/disgoorg/godave/libdave v0.3.0 // indirect
 	github.com/disgoorg/json/v2 v2.0.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/klauspost/compress v1.18.4 // indirect

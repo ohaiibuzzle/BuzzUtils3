@@ -2,12 +2,9 @@ FROM golang:1.26-trixie AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends unzip pkg-config && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
-# libdave (voice encryption), at the version the godave in go.mod is built for.
-# The install script puts it in ~/.local, with a pkg-config file for cgo.
-RUN GODAVE=$(go list -m -f '{{.Dir}}' github.com/disgoorg/godave) && \
-    LIBDAVE=$(go list -m -f '{{.Dir}}' github.com/disgoorg/godave/libdave) && \
-    NON_INTERACTIVE=1 sh "$GODAVE/scripts/libdave_install.sh" "$(cat "$LIBDAVE/release.txt")"
+COPY scripts/install-libdave.sh scripts/
+# libdave (voice encryption), into ~/.local with a pkg-config file for cgo
+RUN go mod download && sh scripts/install-libdave.sh
 ENV PKG_CONFIG_PATH=/root/.local/lib/pkgconfig
 COPY . .
 RUN CGO_ENABLED=1 go build -o buzzutils3 ./src/main.go

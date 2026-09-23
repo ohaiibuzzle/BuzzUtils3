@@ -1,0 +1,41 @@
+name: Test
+
+on:
+  pull_request:
+  workflow_dispatch:
+  # Also run by the image workflow before it publishes
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # The voice encryption library is linked with cgo, so every build needs it
+      - name: Install libdave
+        run: |
+          go mod download
+          sh scripts/install-libdave.sh
+          echo "PKG_CONFIG_PATH=$HOME/.local/lib/pkgconfig" >> "$GITHUB_ENV"
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l src)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race ./...

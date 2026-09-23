@@ -2,15 +2,21 @@ package imageclassifier
 
 import (
 	"github.com/bwmarrin/discordgo"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 )
 
-var Commands = []string{
-	"predict",
-}
-
-func ProcessCommands(command string, args []string, msg *discordgo.MessageCreate, ctx *discordgo.Session) {
-	switch command {
-	case "predict":
-		go PredictCommand(args, msg, ctx)
-	}
+func init() {
+	command.Register(&command.Command{
+		Name:        "predict",
+		Aliases:     []string{"police"},
+		Description: "Ask Ai-chan to comment about an image (reply to one, or uses the latest)",
+		Handler:     PredictCommand,
+	})
+	command.RegisterMessageActions(&command.MessageAction{
+		Name: "Rate image",
+		Handler: func(c *command.Ctx, target *discordgo.Message) {
+			c.Defer()
+			predictMessage(c, target)
+		},
+	})
 }

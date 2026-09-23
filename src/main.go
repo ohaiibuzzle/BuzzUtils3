@@ -11,9 +11,13 @@ import (
 )
 
 func main() {
-	config.LoadConfig("runtime/config.yaml")
+	if err := config.LoadConfig("runtime/config.yaml"); err != nil {
+		log.Fatal("Error loading runtime/config.yaml: ", err)
+	}
 
-	bot.InitContext()
+	if err := bot.InitContext(); err != nil {
+		log.Fatal("Error creating Discord session: ", err)
+	}
 	bot.RegisterHandlers(bot.GetContext())
 	bot.Start()
 

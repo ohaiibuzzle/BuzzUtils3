@@ -1,33 +1,56 @@
 package messagesutils
 
-import "github.com/bwmarrin/discordgo"
+import (
+	"strings"
 
-func SaveThisCommand(args []string, msg *discordgo.MessageCreate, ctx *discordgo.Session) {
-	// Check if this message has a referenced message
-	referencedMessage, err := ctx.ChannelMessage(msg.ChannelID, msg.MessageReference.MessageID)
+	"github.com/bwmarrin/discordgo"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/saucefinder"
+)
 
-	if err != nil {
-		// If there is no referenced message, inform the user
-		ctx.ChannelMessageSendReply(msg.ChannelID, "Please reply to a message containing media to save it.", msg.Reference())
+const soICanSave = ". so I can save"
+
+func SaveThisCommand(c *command.Ctx) {
+	saveMessage(c, c.FindMessage(20, saucefinder.MessageHasMedia))
+}
+
+func saveMessage(c *command.Ctx, target *discordgo.Message) {
+	if target == nil {
+		c.ReplyPrivate("Please reply to a message containing media to save it.")
 		return
 	}
 
-	// Build the embed for the referenced message
-	embed := BuildSaveEmbed(ctx, referencedMessage)
-
-	// Send the embed to the user's DM
-	dmChannel, err := ctx.UserChannelCreate(msg.Author.ID)
-	if err != nil {
-		ctx.ChannelMessageSendReply(msg.ChannelID, "Failed to create DM channel.", msg.Reference())
+	if err := sendToDM(c.Session, c.Author.ID, BuildSaveEmbed(c.Session, target)); err != nil {
+		c.ReplyPrivate("I couldn't DM you. Do you have DMs from server members turned off?")
 		return
 	}
+	c.ReplyPrivate("I've sent you a DM with the saved message!")
+}
 
-	_, err = ctx.ChannelMessageSendEmbed(dmChannel.ID, embed)
-	if err != nil {
-		ctx.ChannelMessageSendReply(msg.ChannelID, "Failed to send DM.", msg.Reference())
-		return
+// HandleSaveShortcut saves the latest message with media when someone says
+// ". so I can save", like the old bot did. It returns true if the message was handled.
+func HandleSaveShortcut(s *discordgo.Session, m *discordgo.MessageCreate) bool {
+	if !strings.HasPrefix(m.Content, soICanSave) {
+		return false
 	}
+	messages, err := s.ChannelMessages(m.ChannelID, 10, m.ID, "", "")
+	if err != nil {
+		return true
+	}
+	for _, message := range messages {
+		if saucefinder.MessageHasMedia(message) {
+			sendToDM(s, m.Author.ID, BuildSaveEmbed(s, message))
+			break
+		}
+	}
+	return true
+}
 
-	// Acknowledge the command in the original channel
-	ctx.ChannelMessageSendReply(msg.ChannelID, "I've sent you a DM with the saved media!", msg.Reference())
+func sendToDM(s *discordgo.Session, userID string, embed *discordgo.MessageEmbed) error {
+	dmChannel, err := s.UserChannelCreate(userID)
+	if err != nil {
+		return err
+	}
+	_, err = s.ChannelMessageSendEmbed(dmChannel.ID, embed)
+	return err
 }

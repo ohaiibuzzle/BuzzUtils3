@@ -5,84 +5,66 @@ import (
 
 	"github.com/GenDoNL/saucenao-go"
 	"github.com/bwmarrin/discordgo"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 )
 
-func SauceplzCommand(args []string, msg *discordgo.MessageCreate, ctx *discordgo.Session) {
-	// Check if there is any message referenced by the command
-	referencedMessage, err := ctx.ChannelMessage(msg.ChannelID, msg.MessageReference.MessageID)
-
-	if err != nil {
-		// Fall back to the last message in the channel
-		messages, err := ctx.ChannelMessages(msg.ChannelID, 1, "", "", "")
-		if err != nil {
-			log.Default().Println("Error getting messages: " + err.Error())
-			return
-		}
-		referencedMessage = messages[0]
-	}
-
-	// Query SauceNao
-	embed, err := querySauceNao(referencedMessage, ctx)
-
-	if err != nil {
-		log.Default().Println("Error querying SauceNao: " + err.Error())
-		return
-	}
-
-	// Send the embed
-	ctx.ChannelMessageSendEmbed(msg.ChannelID, embed)
+func SauceplzCommand(c *command.Ctx) {
+	c.Defer()
+	sauceNaoMessage(c, c.FindMessage(10, MessageHasImages))
 }
 
-func querySauceNao(msg *discordgo.Message, ctx *discordgo.Session) (*discordgo.MessageEmbed, error) {
-	images, err := GetImagesFromMessages(msg)
-
-	if err != nil {
-		log.Default().Println("Error getting images: " + err.Error())
-		return nil, err
+func sauceNaoMessage(c *command.Ctx, target *discordgo.Message) {
+	if target == nil {
+		c.Reply("Please mention a message containing pasta!")
+		return
+	}
+	images := GetImagesFromMessages(target)
+	if len(images) == 0 {
+		c.Reply("That message doesn't have any images!")
+		return
 	}
 
 	result, err := GetSauceNaoClient().FromURL(images[0])
 	if err != nil {
 		log.Default().Println("Error querying SauceNao: " + err.Error())
-		return nil, err
+		c.Reply("SauceNAO is having a moment :( Try again later")
+		return
+	}
+	if len(result.Data) == 0 {
+		c.Reply("No sauce found")
+		return
 	}
 
-	embed := createSauceNaoEmbed(result.Data[0], msg, ctx)
-
-	return embed, nil
+	c.ReplyEmbed(createSauceNaoEmbed(result.Data[0]))
 }
 
-func createSauceNaoEmbed(result saucenao.SaucenaoResults, msg *discordgo.Message, ctx *discordgo.Session) *discordgo.MessageEmbed {
+func createSauceNaoEmbed(result saucenao.SaucenaoResults) *discordgo.MessageEmbed {
 	resultHeader := result.Header
 	resultData := result.Data
 
-	// Create the embed
 	embed := &discordgo.MessageEmbed{
-		Title: "SauceNao result",
+		Title: "Sauce found!",
 		Fields: []*discordgo.MessageEmbedField{
-			{
-				Name:  "Title",
-				Value: resultData.Title,
-			},
-			{
-				Name:  "Index",
-				Value: resultHeader.IndexName,
-			},
-			{
-				Name:  "Similarity",
-				Value: resultHeader.Similarity,
-			},
-			{
-				Name:  "URL",
-				Value: resultData.ExtUrls[0],
-			},
+			command.Field("Similarity", resultHeader.Similarity+"%", false),
+		},
+		Thumbnail: &discordgo.MessageEmbedThumbnail{
+			URL: resultHeader.Thumbnail,
 		},
 	}
 
-	// Add the thumbnail
-	embed.Thumbnail = &discordgo.MessageEmbedThumbnail{
-		URL: resultHeader.Thumbnail,
+	if resultData.Title != "" {
+		embed.Fields = append(embed.Fields, command.Field("Title", resultData.Title, false))
 	}
+	if resultData.MemberName != "" {
+		embed.Fields = append(embed.Fields, command.Field("Author", resultData.MemberName, false))
+	} else if resultData.Creator != "" {
+		embed.Fields = append(embed.Fields, command.Field("Author", resultData.Creator, false))
+	}
+	if len(resultData.ExtUrls) > 0 {
+		embed.URL = resultData.ExtUrls[0]
+		embed.Fields = append(embed.Fields, command.Field("Source", resultData.ExtUrls[0], false))
+	}
+	embed.Fields = append(embed.Fields, command.Field("Index", resultHeader.IndexName, false))
 
 	return embed
 }

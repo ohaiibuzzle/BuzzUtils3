@@ -2,15 +2,23 @@ package getimages
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
+	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
+	imageclassifier "github.com/ohaiibuzzle/BuzzUtils3/src/imageClassifier"
 )
+
+// Tags that are always filtered outside NSFW channels. The classifier *should*
+// handle the rest.
+var zerochanBannedTags = []string{"Nipples"}
 
 type ZerochanDetailedResult struct {
 	ID      int      `json:"id"`
@@ -41,135 +49,121 @@ type ZerochanResults struct {
 	Items []ZerochanResult `json:"items"`
 }
 
-func Zerochan(msg *discordgo.MessageCreate, ctx *discordgo.Session) {
-	// Get the arguments
-	args := strings.Split(msg.Content, " ")
-	if len(args) < 2 {
-		ctx.ChannelMessageSendReply(msg.ChannelID, "You need to specify a search term!", msg.Reference())
+func Zerochan(c *command.Ctx) {
+	c.Defer()
+	query := c.String("tags")
+	filter := !allowNSFW(c)
+
+	results, err := getZerochanResults(query)
+	if err != nil {
+		log.Default().Println("Error getting Zerochan results: " + err.Error())
+		c.Reply(internetBroke)
+		return
+	}
+	if len(results) == 0 {
+		c.Reply("Sorry, I can't find you anything :( \nEither check your search, or Buzzle banned a tag in the result")
 		return
 	}
 
-	// Join the arguments first
-	searchTerm := strings.ReplaceAll(strings.Join(args[1:], " "), "+", ",")
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		result := results[rand.Intn(len(results))]
+		if filter && hasBannedTag(result.Tags) {
+			continue
+		}
 
-	// Get the image
-	embed, err := getZerochanImage(searchTerm)
-	if err != nil {
-		log.Default().Println("Error getting image: " + err.Error())
+		detail, err := getZerochanDetail(result.ID)
+		if err != nil {
+			log.Default().Println("Error getting Zerochan details: " + err.Error())
+			continue
+		}
+		if filter && !imageclassifier.IsSafe(detail.Large) {
+			continue
+		}
+
+		c.ReplyEmbed(makeZerochanEmbed(detail))
+		remember(c)
 		return
 	}
-
-	// Send the image
-	ctx.ChannelMessageSendEmbedReply(msg.ChannelID, embed, msg.Reference())
+	c.Reply("Your search string was wonky, or it included NSFW tags.\nTry again")
 }
 
-func getZerochanImage(searchTerm string) (*discordgo.MessageEmbed, error) {
-	// Get the results
-	results, err := getZerochanResult(searchTerm)
-	if err != nil {
-		log.Default().Println("Error getting results: " + err.Error())
-		return nil, err
+func hasBannedTag(tags []string) bool {
+	for _, banned := range zerochanBannedTags {
+		if slices.ContainsFunc(tags, func(tag string) bool { return strings.EqualFold(tag, banned) }) {
+			return true
+		}
 	}
-
-	// Create the embed
-	return makeZerochanEmbed(results, nil, nil), nil
+	return false
 }
 
-func getZerochanResult(searchTerm string) (*ZerochanResult, error) {
-	result, err := getZerochanResultPage(searchTerm)
-
-	if err != nil {
-		log.Default().Println("Error getting result: " + err.Error())
-		return nil, err
+// getZerochanResults returns the 200 latest posts for "Tag One + Tag Two".
+func getZerochanResults(query string) ([]ZerochanResult, error) {
+	var tags []string
+	for _, tag := range strings.Split(query, "+") {
+		if tag = strings.TrimSpace(tag); tag != "" {
+			tags = append(tags, strings.ReplaceAll(url.PathEscape(tag), "%20", "+"))
+		}
 	}
 
-	return result, nil
-}
-
-func getZerochanResultPage(searchTerm string) (*ZerochanResult, error) {
-	// https://www.zerochan.net/Keqing?page=1&limit=1&json
-
-	req, err := http.NewRequest("GET", "https://www.zerochan.net/"+searchTerm+"?l=200&s=id&json", nil)
+	req, err := newRequest("https://www.zerochan.net/" + strings.Join(tags, ",") + "?l=200&s=id&json")
 	if err != nil {
-		log.Default().Println("Error making request: " + err.Error())
 		return nil, err
 	}
-	req.Header.Set("User-Agent", config.GetConfig().UserAgent)
-
-	jsonResp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		log.Default().Println("Error getting json: " + err.Error())
 		return nil, err
 	}
-
-	// Get the results
-	decoder := json.NewDecoder(jsonResp.Body)
-	var results ZerochanResults
-	err = decoder.Decode(&results)
-
-	totalImageCount := len(results.Items)
-	if totalImageCount == 0 {
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil
 	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("zerochan returned %s", resp.Status)
+	}
 
-	// Get a random index
-	postIndex := rand.Intn(totalImageCount)
-	indexInPage := postIndex % totalImageCount
-
-	if err != nil {
-		log.Default().Println("Error unmarshalling json: " + err.Error())
+	var results ZerochanResults
+	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
 		return nil, err
 	}
-
-	return &results.Items[indexInPage], nil
+	return results.Items, nil
 }
 
-func makeZerochanEmbed(result *ZerochanResult, msg *discordgo.MessageCreate, ctx *discordgo.Session) *discordgo.MessageEmbed {
-	res, err := http.NewRequest("GET", "https://www.zerochan.net/"+strconv.Itoa(result.ID)+"?json", nil)
+func getZerochanDetail(id int) (*ZerochanDetailedResult, error) {
+	req, err := newRequest("https://www.zerochan.net/" + strconv.Itoa(id) + "?json")
 	if err != nil {
-		log.Default().Println("Error creating request: " + err.Error())
-		return nil
+		return nil, err
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("zerochan returned %s", resp.Status)
 	}
 
-	res.Header.Set("User-Agent", config.GetConfig().UserAgent)
-
-	// Get the json
-	jsonResp, err := http.DefaultClient.Do(res)
-	if err != nil {
-		log.Default().Println("Error getting json: " + err.Error())
-		return nil
+	var detail ZerochanDetailedResult
+	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
+		return nil, err
 	}
+	return &detail, nil
+}
 
-	// Get the results
-	decoder := json.NewDecoder(jsonResp.Body)
-	var results ZerochanDetailedResult
-	err = decoder.Decode(&results)
-
-	if err != nil {
-		log.Default().Println("Error unmarshalling json: " + err.Error())
-		return nil
+func makeZerochanEmbed(result *ZerochanDetailedResult) *discordgo.MessageEmbed {
+	link := "https://www.zerochan.net/" + strconv.Itoa(result.ID)
+	title := result.Primary
+	if title == "" {
+		title = "Zerochan result"
 	}
-
-	// Create the embed
-	embed := &discordgo.MessageEmbed{
-		Title: "Zerochan result",
-		URL:   "https://www.zerochan.net/" + strconv.Itoa(result.ID),
+	return &discordgo.MessageEmbed{
+		Title: title,
+		URL:   link,
 		Fields: []*discordgo.MessageEmbedField{
-			{
-				Name:  "Source",
-				Value: result.Source,
-			},
-			{
-				Name:  "Tags",
-				Value: "```\n" + strings.Join(result.Tags, ", ") + "\n```",
-			},
+			command.Field("Source", result.Source, false),
+			command.CodeField("Tags", strings.Join(result.Tags, ", ")),
+		},
+		Image: &discordgo.MessageEmbedImage{
+			URL: result.Large,
 		},
 	}
-
-	// Add the thumbnail
-	embed.Image = &discordgo.MessageEmbedImage{
-		URL: results.Large,
-	}
-
-	return embed
 }

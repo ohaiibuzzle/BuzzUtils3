@@ -3,14 +3,18 @@ package imageclassifier
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"mime/multipart"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/saucefinder"
 )
@@ -23,133 +27,140 @@ type Predictions struct {
 	Sexy    float32 `json:"sexy"`
 }
 
+// nsfwThreshold is the score above which hentai/porn/sexy content is filtered out.
+const nsfwThreshold = 0.5
+
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
+var ErrNoInferenceServer = errors.New("no inference server configured")
+
 func formatFloat(f float32) string {
 	return strconv.FormatFloat(float64(f*100), 'f', 2, 32) + "%"
 }
 
-func PredictCommand(args []string, msg *discordgo.MessageCreate, ctx *discordgo.Session) {
-	var images []string
-	var err error
+func PredictCommand(c *command.Ctx) {
+	c.Defer()
+	target := c.FindMessage(10, saucefinder.MessageHasImages)
+	predictMessage(c, target)
+}
 
-	if msg.ReferencedMessage == nil {
-		target, err := saucefinder.GetLastMessageWithAttachments(msg.ChannelID, ctx)
-		if err != nil {
-			log.Default().Println("Error getting last message with attachments: ", err)
-			return
-		}
-		if target == nil {
-			log.Default().Println("No message with attachments found")
-			return
-		}
-		images, err = saucefinder.GetImagesFromMessages(target)
-	} else {
-		images, err = saucefinder.GetImagesFromMessages(msg.ReferencedMessage)
-	}
-
-	if err != nil {
-		log.Default().Println("Error getting images: ", err)
+func predictMessage(c *command.Ctx, target *discordgo.Message) {
+	if target == nil {
+		c.Reply("Hey, at least give me something to work with!")
 		return
 	}
-
+	images := saucefinder.GetImagesFromMessages(target)
 	if len(images) == 0 {
-		log.Default().Println("No images found")
+		c.Reply("Hey, that is not an image")
 		return
 	}
 
-	firstImage := images[0]
-
-	predictChan := make(chan *Predictions)
-	go func() {
-		res, err := FromUrl(firstImage)
-		if err != nil {
-			log.Default().Println("Error predicting image: ", err)
-			return
-		}
-		predictChan <- res
-	}()
-
-	predictions := <-predictChan
+	predictions, err := FromUrl(images[0])
+	if err != nil {
+		log.Default().Println("Error predicting image: ", err)
+		c.Reply("Ai-chan couldn't look at that image right now :(")
+		return
+	}
 
 	embed := &discordgo.MessageEmbed{
 		Title: "Image Classification Results",
-		Fields: []*discordgo.MessageEmbedField{
-			{
-				Name:   "Drawings",
-				Value:  formatFloat(predictions.Drawing),
-				Inline: true,
-			},
-			{
-				Name:   "Hentai",
-				Value:  formatFloat(predictions.Hentai),
-				Inline: true,
-			},
-			{
-				Name:   "Neutral",
-				Value:  formatFloat(predictions.Neutral),
-				Inline: true,
-			},
-			{
-				Name:   "Porn",
-				Value:  formatFloat(predictions.Porn),
-				Inline: true,
-			},
-			{
-				Name:   "Sexy",
-				Value:  formatFloat(predictions.Sexy),
-				Inline: true,
-			},
+		Color: topCategoryColor(predictions),
+		Thumbnail: &discordgo.MessageEmbedThumbnail{
+			URL: images[0],
 		},
+		Fields: []*discordgo.MessageEmbedField{
+			command.Field("Drawings", formatFloat(predictions.Drawing), true),
+			command.Field("Hentai", formatFloat(predictions.Hentai), true),
+			command.Field("Neutral", formatFloat(predictions.Neutral), true),
+			command.Field("Porn", formatFloat(predictions.Porn), true),
+			command.Field("Sexy", formatFloat(predictions.Sexy), true),
+		},
+		Footer: &discordgo.MessageEmbedFooter{Text: "Powered by advanced Keyboard Cat technologies"},
 	}
 
-	ctx.ChannelMessageSendEmbedReply(msg.ChannelID, embed, msg.Reference())
+	c.ReplyEmbed(embed)
 }
 
+// topCategoryColor returns the embed colour of the highest-scoring category.
+func topCategoryColor(p *Predictions) int {
+	scores := []float32{p.Drawing, p.Hentai, p.Neutral, p.Porn, p.Sexy}
+	colors := []int{0xD53113, 0x5B17B1, 0x2299B8, 0x6B1616, 0x1EB117}
+	best := 0
+	for i, score := range scores {
+		if score > scores[best] {
+			best = i
+		}
+	}
+	return colors[best]
+}
+
+// IsSafe reports whether an image passes the NSFW filter. If the inference server is
+// unavailable the image is allowed through, so keep the site-level filters (e.g.
+// rating:safe) on as well.
+func IsSafe(url string) bool {
+	p, err := FromUrl(url)
+	if err != nil {
+		if !errors.Is(err, ErrNoInferenceServer) {
+			log.Default().Println("NSFW filter unavailable, allowing image: ", err)
+		}
+		return true
+	}
+	if p.Hentai >= nsfwThreshold || p.Porn >= nsfwThreshold || p.Sexy >= nsfwThreshold {
+		log.Default().Println("NSFW filter rejected image: " + url)
+		return false
+	}
+	return true
+}
+
+// FromUrl downloads an image and sends it to the inference server for classification.
 func FromUrl(url string) (*Predictions, error) {
-	var inferenceServerURL = fmt.Sprintf("%s/classify", config.GetConfig().InferenceServer)
+	server := strings.TrimRight(config.GetConfig().InferenceServer, "/")
+	if server == "" {
+		return nil, ErrNoInferenceServer
+	}
 
-	client := &http.Client{}
-	// Download the image
-	imageData, err := client.Get(url)
-
+	imageData, err := httpClient.Get(url)
 	if err != nil {
 		return nil, err
 	}
 	defer imageData.Body.Close()
+	if imageData.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("image download returned %s", imageData.Status)
+	}
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	part, err := writer.CreateFormFile("file", "image.jpg")
+	part, err := writer.CreateFormFile("file", "image")
 	if err != nil {
 		return nil, err
 	}
-	_, err = io.Copy(part, imageData.Body)
-	if err != nil {
+	if _, err = io.Copy(part, imageData.Body); err != nil {
 		return nil, err
 	}
-	err = writer.Close()
-	if err != nil {
+	if err = writer.Close(); err != nil {
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", inferenceServerURL, body)
+	req, err := http.NewRequest("POST", server+"/classify", body)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("accept", "application/json")
 
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-
-	// Deserialize the JSON response
-	predictions := &Predictions{}
-	err = json.NewDecoder(resp.Body).Decode(predictions)
-	if err != nil {
-		return nil, err
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("inference server returned %s: %s", resp.Status, msg)
 	}
 
+	predictions := &Predictions{}
+	if err = json.NewDecoder(resp.Body).Decode(predictions); err != nil {
+		return nil, err
+	}
 	return predictions, nil
 }

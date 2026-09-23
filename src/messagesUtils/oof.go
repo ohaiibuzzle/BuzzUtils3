@@ -1,22 +1,26 @@
 package messagesutils
 
-import "github.com/bwmarrin/discordgo"
+import "github.com/ohaiibuzzle/BuzzUtils3/src/command"
 
-func OofCommand(args []string, msg *discordgo.MessageCreate, ctx *discordgo.Session) {
+func OofCommand(c *command.Ctx) {
+	c.DeleteInvocation()
+
 	// Delete the bot's last message in the channel
-	messages, err := ctx.ChannelMessages(msg.ChannelID, 10, "", "", "")
+	messages, err := c.Session.ChannelMessages(c.ChannelID, 10, "", "", "")
 	if err != nil {
-		ctx.ChannelMessageSendReply(msg.ChannelID, "Failed to fetch messages.", msg.Reference())
+		c.ReplyPrivate("Failed to fetch messages.")
 		return
 	}
 
 	for _, message := range messages {
-		if message.Author.ID == ctx.State.User.ID {
-			err := ctx.ChannelMessageDelete(msg.ChannelID, message.ID)
-			if err != nil {
-				ctx.ChannelMessageSendReply(msg.ChannelID, "Failed to delete my last message.", msg.Reference())
+		if message.Author.ID == c.Session.State.User.ID {
+			if err := c.Session.ChannelMessageDelete(c.ChannelID, message.ID); err != nil {
+				c.ReplyPrivate("Failed to delete my last message.")
+				return
 			}
+			c.Ack("Deleted my last message.")
 			return
 		}
 	}
+	c.ReplyPrivate("I couldn't find a recent message of mine.")
 }

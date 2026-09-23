@@ -47,3 +47,13 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Build and push classifier image
+        uses: docker/build-push-action@v7
+        with:
+          context: classifier
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-classifier:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-classifier:${{ github.sha }}

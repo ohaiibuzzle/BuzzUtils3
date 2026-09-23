@@ -1,9 +1,7 @@
 package utils
 
-import "github.com/bwmarrin/discordgo"
+import "github.com/ohaiibuzzle/BuzzUtils3/src/command"
 
-func Ping(args []string, msg *discordgo.MessageCreate, ctx *discordgo.Session) {
-	ctx.ChannelMessageSend(msg.ChannelID, "Pong!")
-	// Send latency
-	ctx.ChannelMessageSend(msg.ChannelID, "Latency: "+ctx.HeartbeatLatency().String())
+func Ping(c *command.Ctx) {
+	c.Reply("Pong!\nLatency: " + c.Session.HeartbeatLatency().String())
 }

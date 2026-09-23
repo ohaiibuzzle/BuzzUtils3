@@ -1,15 +1,20 @@
-volume:
-  buzzutils3-data:
-
 services:
   buzzutils3:
     image: ghcr.io/ohaiibuzzle/buzzutils3:latest
     container_name: buzzutils3
     restart: unless-stopped
-  
+    volumes:
+      # config.yaml, databases, assets/ and model.tflite live here
+      - ./runtime:/app/runtime
+    depends_on:
+      - inference-server
+
   inference-server:
-    image: ghcr.io/ohaiibuzzle/buzzutils3-classifier  :latest
+    image: ghcr.io/ohaiibuzzle/buzzutils3-classifier:latest
     container_name: buzzutils3-inference-server
     restart: unless-stopped
+    environment:
+      MODEL_PATH: /app/runtime/model.tflite
+      TFLITE_THREADS: "1"
     volumes:
-      - buzzutils3-data:/app/data
+      - ./runtime:/app/runtime:ro

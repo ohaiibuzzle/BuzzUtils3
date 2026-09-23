@@ -1,52 +1,51 @@
 package messagesutils
 
 import (
-	"strconv"
-
-	"github.com/bwmarrin/discordgo"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/saucefinder"
 )
 
-func SaveAllCommand(args []string, msg *discordgo.MessageCreate, ctx *discordgo.Session) {
-	// Get the number of messages to scan from args
-	numMessages := 10 // Default value
-	if len(args) > 0 {
-		parsedNum, err := strconv.Atoi(args[0])
-		if err == nil && parsedNum > 0 && parsedNum <= 100 {
-			numMessages = parsedNum
+var (
+	minSaveAll float64 = 1
+	maxSaveAll float64 = 100
+)
+
+func SaveAllCommand(c *command.Ctx) {
+	numMessages := 10
+	if n, ok := c.Int("amount"); ok {
+		if n < 1 || n > int64(maxSaveAll) {
+			c.ReplyPrivate("You can only look between 1 and 100 messages back!")
+			return
 		}
+		numMessages = int(n)
 	}
 
-	// Fetch messages from the channel
-	messages, err := ctx.ChannelMessages(msg.ChannelID, numMessages, "", "", "")
+	c.Defer()
+	before := ""
+	if c.Message != nil {
+		before = c.Message.ID
+	}
+	messages, err := c.Session.ChannelMessages(c.ChannelID, numMessages, before, "", "")
 	if err != nil {
-		ctx.ChannelMessageSendReply(msg.ChannelID, "Failed to fetch messages.", msg.Reference())
+		c.ReplyPrivate("Failed to fetch messages.")
 		return
 	}
 
+	saved := 0
 	for _, message := range messages {
-		messageHasEmbed, err := saucefinder.GetImagesFromMessages(message)
-		if err != nil || len(messageHasEmbed) == 0 {
+		if !saucefinder.MessageHasMedia(message) {
 			continue
 		}
-
-		// Build the embed for the message
-		embed := BuildSaveEmbed(ctx, message)
-
-		// Send the embed to the user's DM
-		dmChannel, err := ctx.UserChannelCreate(msg.Author.ID)
-		if err != nil {
-			ctx.ChannelMessageSendReply(msg.ChannelID, "Failed to create DM channel.", msg.Reference())
+		if err := sendToDM(c.Session, c.Author.ID, BuildSaveEmbed(c.Session, message)); err != nil {
+			c.ReplyPrivate("I couldn't DM you. Do you have DMs from server members turned off?")
 			return
 		}
-
-		_, err = ctx.ChannelMessageSendEmbed(dmChannel.ID, embed)
-		if err != nil {
-			ctx.ChannelMessageSendReply(msg.ChannelID, "Failed to send DM.", msg.Reference())
-			return
-		}
+		saved++
 	}
 
-	// Acknowledge the command in the original channel
-	ctx.ChannelMessageSendReply(msg.ChannelID, "I've sent you a DM with the saved media!", msg.Reference())
+	if saved == 0 {
+		c.ReplyPrivate("I couldn't find anything to save :(")
+		return
+	}
+	c.ReplyPrivate("I've sent you a DM with the saved media!")
 }

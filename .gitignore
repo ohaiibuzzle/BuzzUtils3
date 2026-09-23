@@ -22,3 +22,23 @@ go.work
 
 # bot runtime directory
 runtime/
+
+# Built binary (go build -o buzzutils3 ./src/main.go)
+/buzzutils3
+
+# Python (classifier service)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local secrets / databases outside runtime/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+
+# OS / editor clutter
+.DS_Store
+.idea/

@@ -5,160 +5,141 @@ import (
 	"errors"
 	"log"
 	"math/rand"
-	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
+	imageclassifier "github.com/ohaiibuzzle/BuzzUtils3/src/imageClassifier"
 )
+
+const safebooruPageSize = 100
 
 type SafebooruPosts struct {
 	XMLName xml.Name        `xml:"posts"`
-	Text    string          `xml:",chardata"`
 	Count   string          `xml:"count,attr"`
 	Offset  string          `xml:"offset,attr"`
 	Posts   []SafebooruPost `xml:"post"`
 }
 
 type SafebooruPost struct {
-	Text          string `xml:",chardata"`
-	Height        string `xml:"height,attr"`
-	Score         string `xml:"score,attr"`
-	FileURL       string `xml:"file_url,attr"`
-	ParentID      string `xml:"parent_id,attr"`
-	SampleURL     string `xml:"sample_url,attr"`
-	SampleWidth   string `xml:"sample_width,attr"`
-	SampleHeight  string `xml:"sample_height,attr"`
-	PreviewURL    string `xml:"preview_url,attr"`
-	Rating        string `xml:"rating,attr"`
-	Tags          string `xml:"tags,attr"`
-	ID            string `xml:"id,attr"`
-	Width         string `xml:"width,attr"`
-	Change        string `xml:"change,attr"`
-	Md5           string `xml:"md5,attr"`
-	CreatorID     string `xml:"creator_id,attr"`
-	HasChildren   string `xml:"has_children,attr"`
-	CreatedAt     string `xml:"created_at,attr"`
-	Status        string `xml:"status,attr"`
-	Source        string `xml:"source,attr"`
-	HasNotes      string `xml:"has_notes,attr"`
-	HasComments   string `xml:"has_comments,attr"`
-	PreviewWidth  string `xml:"preview_width,attr"`
-	PreviewHeight string `xml:"preview_height,attr"`
+	FileURL    string `xml:"file_url,attr"`
+	PreviewURL string `xml:"preview_url,attr"`
+	SampleURL  string `xml:"sample_url,attr"`
+	Rating     string `xml:"rating,attr"`
+	Tags       string `xml:"tags,attr"`
+	ID         string `xml:"id,attr"`
+	Source     string `xml:"source,attr"`
 }
 
-func Safebooru(msg *discordgo.MessageCreate, ctx *discordgo.Session) {
-	// Get the result
-	result, err := getSafebooruResult(msg.Content[len(config.GetConfig().BotPrefix)+len("safebooru "):])
-	if err != nil {
-		log.Default().Println("Error getting result: " + err.Error())
+var errNoResults = errors.New("no results")
+
+func Safebooru(c *command.Ctx) {
+	c.Defer()
+	tags := convertSearchTerm(c.String("tags"))
+	filter := !allowNSFW(c)
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		result, err := getSafebooruResult(tags)
+		if errors.Is(err, errNoResults) {
+			c.Reply("Your search returned no result :(")
+			return
+		}
+		if err != nil {
+			log.Default().Println("Error getting Safebooru result: " + err.Error())
+			c.Reply(internetBroke)
+			return
+		}
+		if filter && !imageclassifier.IsSafe(result.FileURL) {
+			continue
+		}
+
+		c.ReplyEmbed(makeSafebooruEmbed(result))
+		remember(c)
 		return
 	}
-
-	// Create the embed
-	embed := makeSafebooruEmbed(result, msg, ctx)
-
-	// Send the embed
-	ctx.ChannelMessageSendEmbed(msg.ChannelID, embed)
+	c.Reply("Sorry, I can't find you anything :( \nEither check your search, or Buzzle banned a tag in the result")
 }
 
-func getSafebooruResult(searchTerm string) (*SafebooruPost, error) {
-	countReq, err := getSafebooruPage(searchTerm, 0, 1)
+func getSafebooruResult(tags string) (*SafebooruPost, error) {
+	countReq, err := getSafebooruPage(tags, 0, 1)
 	if err != nil {
-		log.Default().Println("Error getting result: " + err.Error())
 		return nil, err
 	}
 
-	// Get the post count
 	postCount, err := strconv.Atoi(countReq.Count)
 	if err != nil {
-		log.Default().Println("Error converting post count: " + err.Error())
 		return nil, err
 	}
-
-	// Select a random post
-	postIndex := rand.Intn(postCount)
-
-	page := postIndex / 100
-	indexInPage := postIndex % 100
-
-	// Get the result
-	result, err := getSafebooruPage(searchTerm, page, 100)
-
-	if err != nil {
-		log.Default().Println("Error getting result: " + err.Error())
-		return nil, errors.New("Error getting result: " + err.Error())
+	if postCount <= 0 {
+		return nil, errNoResults
 	}
 
-	return &result.Posts[indexInPage], nil
+	postIndex := rand.Intn(postCount)
+	page, err := getSafebooruPage(tags, postIndex/safebooruPageSize, safebooruPageSize)
+	if err != nil {
+		return nil, err
+	}
+	if len(page.Posts) == 0 {
+		return nil, errNoResults
+	}
+
+	return &page.Posts[(postIndex%safebooruPageSize)%len(page.Posts)], nil
 }
 
-func getSafebooruPage(searchTerm string, page int, limit int) (*SafebooruPosts, error) {
-	// https://safebooru.org/index.php?page=dapi&s=post&q=index&tags=raiden_shogun
+func getSafebooruPage(tags string, page int, limit int) (*SafebooruPosts, error) {
+	query := url.Values{}
+	query.Set("page", "dapi")
+	query.Set("s", "post")
+	query.Set("q", "index")
+	query.Set("limit", strconv.Itoa(limit))
+	query.Set("pid", strconv.Itoa(page))
+	query.Set("tags", tags)
 
-	// Convert the search term
-	// sb uses (tag_1 + tag_2) instead of tag 1, tag 2
-	searchTerm = convertSearchTerm(searchTerm)
-
-	req, err := http.NewRequest("GET", "https://safebooru.org/index.php?page=dapi&s=post&q=index&limit="+strconv.Itoa(limit)+"&tags="+searchTerm+"&pid="+strconv.Itoa(page), nil)
+	req, err := newRequest("https://safebooru.org/index.php?" + query.Encode())
 	if err != nil {
-		log.Default().Println("Error making request: " + err.Error())
 		return nil, err
 	}
 
-	xmlResp, err := http.DefaultClient.Do(req)
+	xmlResp, err := httpClient.Do(req)
 	if err != nil {
-		log.Default().Println("Error getting xml: " + err.Error())
 		return nil, err
 	}
+	defer xmlResp.Body.Close()
 
-	//Parse the page
-	decoder := xml.NewDecoder(xmlResp.Body)
 	var results SafebooruPosts
-	err = decoder.Decode(&results)
-
-	if err != nil {
-		log.Default().Println("Error unmarshalling xml: " + err.Error())
+	if err := xml.NewDecoder(xmlResp.Body).Decode(&results); err != nil {
 		return nil, err
 	}
-
 	return &results, nil
 }
 
+// convertSearchTerm converts "Tag One + Tag Two" into SafeBooru's "tag_one tag_two".
 func convertSearchTerm(searchTerm string) string {
-	// Inject rating:safe
-	if !strings.Contains(searchTerm, "rating:") {
-		searchTerm += "+rating:safe"
+	var tags []string
+	for _, tag := range strings.Split(searchTerm, "+") {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+		if tag != "" {
+			tags = append(tags, strings.ReplaceAll(tag, " ", "_"))
+		}
 	}
-	// Convert the search term
-	// sb uses (tag_1 + tag_2) instead of tag 1, tag 2
-	searchTerm = strings.ReplaceAll(searchTerm, " ", "_")
-	searchTerm = strings.ReplaceAll(searchTerm, "+", " ")
-	return searchTerm
+	if !strings.Contains(searchTerm, "rating:") {
+		tags = append(tags, "rating:safe")
+	}
+	return strings.Join(tags, " ")
 }
 
-func makeSafebooruEmbed(result *SafebooruPost, msg *discordgo.MessageCreate, ctx *discordgo.Session) *discordgo.MessageEmbed {
-	// Create the embed
-	embed := &discordgo.MessageEmbed{
-		Title: "Safebooru result",
+func makeSafebooruEmbed(result *SafebooruPost) *discordgo.MessageEmbed {
+	return &discordgo.MessageEmbed{
+		Title: "Your random image!",
 		URL:   "https://safebooru.org/index.php?page=post&s=view&id=" + result.ID,
 		Fields: []*discordgo.MessageEmbedField{
-			{
-				Name:  "Source",
-				Value: result.Source,
-			},
-			{
-				Name:  "Tags",
-				Value: "```\n" + result.Tags + "\n```",
-			},
+			command.Field("Source", result.Source, false),
+			command.CodeField("Tags", strings.TrimSpace(result.Tags)),
+		},
+		Image: &discordgo.MessageEmbedImage{
+			URL: result.FileURL,
 		},
 	}
-
-	// Add the image
-	embed.Image = &discordgo.MessageEmbedImage{
-		URL: result.FileURL,
-	}
-
-	return embed
 }

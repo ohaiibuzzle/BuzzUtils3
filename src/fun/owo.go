@@ -4,7 +4,7 @@ import (
 	"math/rand"
 	"regexp"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 )
 
 var kaomojis = []string{
@@ -83,15 +83,11 @@ func Owoify(input string) string {
 	return output + " " + kaomojis[rand.Intn(len(kaomojis))]
 }
 
-func OwoCommand(args []string, msg *discordgo.MessageCreate, ctx *discordgo.Session) {
-	if len(args) == 0 {
-		ctx.ChannelMessageSend(msg.ChannelID, "Please provide a message to owoify!")
+func OwoCommand(c *command.Ctx) {
+	text := c.String("text")
+	if text == "" {
+		c.ReplyPrivate("Please provide a message to owoify!")
 		return
 	}
-	input := ""
-	for _, arg := range args {
-		input += arg + " "
-	}
-	owoified := Owoify(input)
-	ctx.ChannelMessageSendReply(msg.ChannelID, owoified, msg.Reference())
+	c.Reply(Owoify(text))
 }

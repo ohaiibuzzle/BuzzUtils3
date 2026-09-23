@@ -4,101 +4,71 @@ import (
 	"log"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/birthdays"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
-	"github.com/ohaiibuzzle/BuzzUtils3/src/getimages"
-	imageclassifier "github.com/ohaiibuzzle/BuzzUtils3/src/imageClassifier"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/database"
 	messagesutils "github.com/ohaiibuzzle/BuzzUtils3/src/messagesUtils"
-	"github.com/ohaiibuzzle/BuzzUtils3/src/saucefinder"
-	"github.com/ohaiibuzzle/BuzzUtils3/src/utils"
-	"golang.org/x/exp/slices"
+	"github.com/ohaiibuzzle/BuzzUtils3/src/welcome"
+
+	// These packages register their commands on import
+	_ "github.com/ohaiibuzzle/BuzzUtils3/src/fun"
+	_ "github.com/ohaiibuzzle/BuzzUtils3/src/getimages"
+	_ "github.com/ohaiibuzzle/BuzzUtils3/src/imageClassifier"
+	_ "github.com/ohaiibuzzle/BuzzUtils3/src/nsfwrole"
+	_ "github.com/ohaiibuzzle/BuzzUtils3/src/saucefinder"
+	_ "github.com/ohaiibuzzle/BuzzUtils3/src/utils"
 )
 
 func RegisterHandlers(s *discordgo.Session) {
 	s.AddHandler(OnReadyHandler)
 	s.AddHandler(OnMessageHandler)
+	s.AddHandler(command.HandleInteraction)
+	s.AddHandler(welcome.OnMemberJoin)
+	s.AddHandler(OnMemberRemove)
+	s.AddHandler(OnGuildDelete)
 }
 
 func OnReadyHandler(s *discordgo.Session, event *discordgo.Ready) {
-	s.UpdateGameStatus(0, "Hello, world!")
+	log.Default().Println("Logged in as " + event.User.Username)
+	s.UpdateGameStatus(0, "in Buzzle's Box. Available on GitHub")
+
+	if err := command.Sync(s); err != nil {
+		log.Default().Println("Error registering slash commands: " + err.Error())
+	}
+
+	birthdays.StartBirthdayCoroutine(s)
 }
 
 func OnMessageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-	// Prevent a loop of doom
-	if m.Author.ID == s.State.User.ID {
+	// Prevent a loop of doom, and a multi-bot mess
+	if m.Author == nil || m.Author.ID == s.State.User.ID || m.Author.Bot {
 		return
 	}
 
-	// Prevent a multi-bot mess
-	if m.Author.Bot {
+	if messagesutils.HandleSaveShortcut(s, m) {
 		return
 	}
 
-	// Check prefix
-	prefix := config.GetConfig().BotPrefix
-
-	if m.Content[:len(prefix)] != prefix {
-		return
-	}
-
-	// Split command
-	command, args := splitCommand(m.Content[len(prefix):])
-	log.Default().Println("User " + m.Author.Username + " issued command: " + command)
-
-	// Set the status to typing
-	err := s.ChannelTyping(m.ChannelID)
-	if err != nil {
-		log.Default().Println("Error setting typing status: ", err)
-	}
-
-	// Process command
-	if slices.Contains(utils.Commands, command) {
-		go utils.ProcessCommands(command, args, m, s)
-		return
-	}
-
-	if slices.Contains(saucefinder.Commands, command) {
-		go saucefinder.ProcessCommands(command, args, m, s)
-		return
-	}
-
-	if slices.Contains(getimages.Commands, command) {
-		go getimages.ProcessCommands(command, args, m, s)
-		return
-	}
-
-	if slices.Contains(imageclassifier.Commands, command) {
-		go imageclassifier.ProcessCommands(command, args, m, s)
-		return
-	}
-
-	if slices.Contains(messagesutils.Commands, command) {
-		go messagesutils.ProcessCommands(command, args, m, s)
-		return
-	}
-
-	log.Default().Println("Unknown command: " + command)
+	command.HandleMessage(s, m, config.GetConfig().BotPrefix)
 }
 
-func splitCommand(message string) (string, []string) {
-	for i := 0; i < len(message); i++ {
-		if message[i] == ' ' {
-			return message[:i], splitArgs(message[i+1:])
-		}
+// OnMemberRemove forgets a member's per-guild data when they leave.
+func OnMemberRemove(s *discordgo.Session, m *discordgo.GuildMemberRemove) {
+	if err := (&birthdays.Birthday{}).DeleteBirthday(m.GuildID, m.User.ID); err != nil {
+		log.Default().Println("Error removing birthday: " + err.Error())
 	}
-	return message, []string{}
+	database.ForgetMember(m.GuildID, m.User.ID)
 }
 
-func splitArgs(message string) []string {
-	var args []string
-	var currentArg string
-	for i := 0; i < len(message); i++ {
-		if message[i] == ' ' {
-			args = append(args, currentArg)
-			currentArg = ""
-		} else {
-			currentArg += string(message[i])
-		}
+// OnGuildDelete forgets a guild's data when the bot is removed from it.
+func OnGuildDelete(s *discordgo.Session, g *discordgo.GuildDelete) {
+	// Unavailable means a Discord outage, not a removal
+	if g.Unavailable {
+		return
 	}
-	args = append(args, currentArg)
-	return args
+	if err := birthdays.ForgetGuild(g.ID); err != nil {
+		log.Default().Println("Error removing guild birthdays: " + err.Error())
+	}
+	database.ForgetGuild(g.ID)
 }

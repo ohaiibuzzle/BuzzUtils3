@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 )
 
@@ -20,9 +20,9 @@ func init() {
 		&command.Command{
 			Name:        "sudo",
 			Description: "Make the bot say something",
-			Options: []*discordgo.ApplicationCommandOption{
+			Options: []command.Option{
 				{
-					Type:        discordgo.ApplicationCommandOptionString,
+					Type:        discord.ApplicationCommandOptionTypeString,
 					Name:        "text",
 					Description: "What to say",
 					Required:    true,

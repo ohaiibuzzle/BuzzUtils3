@@ -5,7 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/snowflake/v2"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
 )
@@ -16,14 +17,27 @@ const maxAttempts = 3
 
 var httpClient = &http.Client{Timeout: 15 * time.Second}
 
-func tagsOption(description string) []*discordgo.ApplicationCommandOption {
-	return []*discordgo.ApplicationCommandOption{
+func tagsOption(description string) []command.Option {
+	return []command.Option{
 		{
-			Type:        discordgo.ApplicationCommandOptionString,
+			Type:        discord.ApplicationCommandOptionTypeString,
 			Name:        "tags",
 			Description: description,
 			Required:    true,
 		},
+	}
+}
+
+// imageEmbed is the embed shared by the booru-style sites.
+func imageEmbed(title, link, source, tags, image string) discord.Embed {
+	return discord.Embed{
+		Title: title,
+		URL:   link,
+		Fields: []discord.EmbedField{
+			command.Field("Source", source, false),
+			command.CodeField("Tags", tags),
+		},
+		Image: &discord.EmbedResource{URL: image},
 	}
 }
 
@@ -62,9 +76,9 @@ func init() {
 			Name:        "pixivshow",
 			Aliases:     []string{"pxs"},
 			Description: "Display a Pixiv post in the bot's format",
-			Options: []*discordgo.ApplicationCommandOption{
+			Options: []command.Option{
 				{
-					Type:        discordgo.ApplicationCommandOptionString,
+					Type:        discord.ApplicationCommandOptionTypeString,
 					Name:        "post",
 					Description: "A Pixiv artwork URL or illustration ID",
 					Required:    true,
@@ -107,7 +121,7 @@ type lastSearch struct {
 
 var (
 	lastSearchesMu sync.Mutex
-	lastSearches   = map[string]lastSearch{}
+	lastSearches   = map[[2]snowflake.ID]lastSearch{}
 )
 
 func remember(c *command.Ctx) {
@@ -119,7 +133,7 @@ func remember(c *command.Ctx) {
 			delete(lastSearches, key)
 		}
 	}
-	lastSearches[c.ChannelID+":"+c.Author.ID] = lastSearch{
+	lastSearches[[2]snowflake.ID{c.ChannelID, c.Author.ID}] = lastSearch{
 		command: c.Command.Name,
 		args:    c.Args(),
 		expires: now.Add(moreTimeout),
@@ -128,7 +142,7 @@ func remember(c *command.Ctx) {
 
 func More(c *command.Ctx) {
 	lastSearchesMu.Lock()
-	entry, ok := lastSearches[c.ChannelID+":"+c.Author.ID]
+	entry, ok := lastSearches[[2]snowflake.ID{c.ChannelID, c.Author.ID}]
 	lastSearchesMu.Unlock()
 
 	if !ok || time.Now().After(entry.expires) {

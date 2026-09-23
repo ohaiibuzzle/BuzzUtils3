@@ -1,19 +1,17 @@
 package messagesutils
 
 import (
+	"github.com/disgoorg/snowflake/v2"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/saucefinder"
 )
 
-var (
-	minSaveAll float64 = 1
-	maxSaveAll float64 = 100
-)
+var minSaveAll, maxSaveAll = 1, 100
 
 func SaveAllCommand(c *command.Ctx) {
 	numMessages := 10
 	if n, ok := c.Int("amount"); ok {
-		if n < 1 || n > int64(maxSaveAll) {
+		if n < int64(minSaveAll) || n > int64(maxSaveAll) {
 			c.ReplyPrivate("You can only look between 1 and 100 messages back!")
 			return
 		}
@@ -21,22 +19,23 @@ func SaveAllCommand(c *command.Ctx) {
 	}
 
 	c.Defer()
-	before := ""
+	var before snowflake.ID
 	if c.Message != nil {
 		before = c.Message.ID
 	}
-	messages, err := c.Session.ChannelMessages(c.ChannelID, numMessages, before, "", "")
+	messages, err := c.Client.Rest.GetMessages(c.ChannelID, 0, before, 0, numMessages)
 	if err != nil {
 		c.ReplyPrivate("Failed to fetch messages.")
 		return
 	}
 
 	saved := 0
-	for _, message := range messages {
+	for i := range messages {
+		message := &messages[i]
 		if !saucefinder.MessageHasMedia(message) {
 			continue
 		}
-		if err := sendToDM(c.Session, c.Author.ID, BuildSaveEmbed(c.Session, message)); err != nil {
+		if err := sendToDM(c.Client, c.Author.ID, BuildSaveEmbed(c.Client, message)); err != nil {
 			c.ReplyPrivate("I couldn't DM you. Do you have DMs from server members turned off?")
 			return
 		}

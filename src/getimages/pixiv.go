@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
 )
@@ -158,22 +158,19 @@ func sendPixivIllust(c *command.Ctx, illust *pixivIllust, content string) bool {
 		}
 	}
 
-	_, err = c.Send(&discordgo.MessageSend{
+	_, err = c.Send(discord.MessageCreate{
 		Content: content,
-		Embeds: []*discordgo.MessageEmbed{{
+		Embeds: []discord.Embed{{
 			Title: illust.Title,
 			URL:   "https://www.pixiv.net/en/artworks/" + strconv.Itoa(illust.ID),
-			Fields: []*discordgo.MessageEmbedField{
+			Fields: []discord.EmbedField{
 				command.Field("Title", illust.Title, false),
 				command.Field("Author", fmt.Sprintf("%s, Pixiv ID: %d", illust.User.Name, illust.User.ID), false),
 				command.Field("Tags", strings.Join(tags, ", "), false),
 			},
-			Image: &discordgo.MessageEmbedImage{URL: "attachment://" + filename},
+			Image: &discord.EmbedResource{URL: "attachment://" + filename},
 		}},
-		Files: []*discordgo.File{{
-			Name:   filename,
-			Reader: bytes.NewReader(data),
-		}},
+		Files: []*discord.File{discord.NewFile(filename, "", bytes.NewReader(data))},
 	})
 	return err == nil
 }

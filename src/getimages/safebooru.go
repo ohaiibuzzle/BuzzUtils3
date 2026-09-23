@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 	imageclassifier "github.com/ohaiibuzzle/BuzzUtils3/src/imageClassifier"
 )
@@ -130,16 +130,7 @@ func convertSearchTerm(searchTerm string) string {
 	return strings.Join(tags, " ")
 }
 
-func makeSafebooruEmbed(result *SafebooruPost) *discordgo.MessageEmbed {
-	return &discordgo.MessageEmbed{
-		Title: "Your random image!",
-		URL:   "https://safebooru.org/index.php?page=post&s=view&id=" + result.ID,
-		Fields: []*discordgo.MessageEmbedField{
-			command.Field("Source", result.Source, false),
-			command.CodeField("Tags", strings.TrimSpace(result.Tags)),
-		},
-		Image: &discordgo.MessageEmbedImage{
-			URL: result.FileURL,
-		},
-	}
+func makeSafebooruEmbed(result *SafebooruPost) discord.Embed {
+	return imageEmbed("Your random image!", "https://safebooru.org/index.php?page=post&s=view&id="+result.ID,
+		result.Source, strings.TrimSpace(result.Tags), result.FileURL)
 }

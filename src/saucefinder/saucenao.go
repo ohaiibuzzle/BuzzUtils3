@@ -4,7 +4,7 @@ import (
 	"log"
 
 	"github.com/GenDoNL/saucenao-go"
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 )
 
@@ -13,18 +13,13 @@ func SauceplzCommand(c *command.Ctx) {
 	sauceNaoMessage(c, c.FindMessage(10, MessageHasImages))
 }
 
-func sauceNaoMessage(c *command.Ctx, target *discordgo.Message) {
-	if target == nil {
-		c.Reply("Please mention a message containing pasta!")
-		return
-	}
-	images := GetImagesFromMessages(target)
-	if len(images) == 0 {
-		c.Reply("That message doesn't have any images!")
+func sauceNaoMessage(c *command.Ctx, target *discord.Message) {
+	image, ok := sauceTarget(c, target)
+	if !ok {
 		return
 	}
 
-	result, err := GetSauceNaoClient().FromURL(images[0])
+	result, err := GetSauceNaoClient().FromURL(image)
 	if err != nil {
 		log.Default().Println("Error querying SauceNao: " + err.Error())
 		c.Reply("SauceNAO is having a moment :( Try again later")
@@ -38,18 +33,16 @@ func sauceNaoMessage(c *command.Ctx, target *discordgo.Message) {
 	c.ReplyEmbed(createSauceNaoEmbed(result.Data[0]))
 }
 
-func createSauceNaoEmbed(result saucenao.SaucenaoResults) *discordgo.MessageEmbed {
+func createSauceNaoEmbed(result saucenao.SaucenaoResults) discord.Embed {
 	resultHeader := result.Header
 	resultData := result.Data
 
-	embed := &discordgo.MessageEmbed{
+	embed := discord.Embed{
 		Title: "Sauce found!",
-		Fields: []*discordgo.MessageEmbedField{
+		Fields: []discord.EmbedField{
 			command.Field("Similarity", resultHeader.Similarity+"%", false),
 		},
-		Thumbnail: &discordgo.MessageEmbedThumbnail{
-			URL: resultHeader.Thumbnail,
-		},
+		Thumbnail: &discord.EmbedResource{URL: resultHeader.Thumbnail},
 	}
 
 	if resultData.Title != "" {

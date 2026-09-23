@@ -7,6 +7,7 @@ import (
 	"log"
 	"sync"
 
+	"github.com/disgoorg/snowflake/v2"
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
@@ -46,7 +47,7 @@ func Get() *sql.DB {
 }
 
 // ForgetMember removes a member's per-guild data when they leave.
-func ForgetMember(guildID, userID string) {
+func ForgetMember(guildID, userID snowflake.ID) {
 	_, err := Get().Exec(`DELETE FROM Marriage WHERE GuildID = ? AND (FirstSide = ? OR SecondSide = ?)`,
 		guildID, userID, userID)
 	if err != nil {
@@ -55,7 +56,7 @@ func ForgetMember(guildID, userID string) {
 }
 
 // ForgetGuild removes all data for a guild the bot has left.
-func ForgetGuild(guildID string) {
+func ForgetGuild(guildID snowflake.ID) {
 	for _, table := range []string{"WelcomeMessage", "Marriage", "NSFWRoles", "NSFWBans"} {
 		if _, err := Get().Exec(`DELETE FROM `+table+` WHERE GuildID = ?`, guildID); err != nil {
 			log.Default().Println("Error removing guild data from " + table + ": " + err.Error())

@@ -1,7 +1,7 @@
 package messagesutils
 
 import (
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 )
 
@@ -16,13 +16,13 @@ func init() {
 		&command.Command{
 			Name:        "saveall",
 			Description: "Save every message with media among the last n messages to your DMs",
-			Options: []*discordgo.ApplicationCommandOption{
+			Options: []command.Option{
 				{
-					Type:        discordgo.ApplicationCommandOptionInteger,
+					Type:        discord.ApplicationCommandOptionTypeInt,
 					Name:        "amount",
 					Description: "How many messages back to look (default 10, max 100)",
 					MinValue:    &minSaveAll,
-					MaxValue:    maxSaveAll,
+					MaxValue:    &maxSaveAll,
 				},
 			},
 			Handler: SaveAllCommand,
@@ -36,7 +36,7 @@ func init() {
 	)
 	command.RegisterMessageActions(&command.MessageAction{
 		Name: "Save to DMs",
-		Handler: func(c *command.Ctx, target *discordgo.Message) {
+		Handler: func(c *command.Ctx, target *discord.Message) {
 			saveMessage(c, target)
 		},
 	})

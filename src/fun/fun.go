@@ -1,13 +1,13 @@
 package fun
 
 import (
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 )
 
-func userOption(name, description string, required bool) *discordgo.ApplicationCommandOption {
-	return &discordgo.ApplicationCommandOption{
-		Type:        discordgo.ApplicationCommandOptionUser,
+func userOption(name, description string, required bool) command.Option {
+	return command.Option{
+		Type:        discord.ApplicationCommandOptionTypeUser,
 		Name:        name,
 		Description: description,
 		Required:    required,
@@ -19,9 +19,9 @@ func init() {
 		&command.Command{
 			Name:        "owo",
 			Description: "Yowouwuw wowowst nyghtmawe, in a cowommand.",
-			Options: []*discordgo.ApplicationCommandOption{
+			Options: []command.Option{
 				{
-					Type:        discordgo.ApplicationCommandOptionString,
+					Type:        discord.ApplicationCommandOptionTypeString,
 					Name:        "text",
 					Description: "The text to owoify",
 					Required:    true,
@@ -32,7 +32,7 @@ func init() {
 		&command.Command{
 			Name:        "ship",
 			Description: "Ships two people together 🛳️",
-			Options: []*discordgo.ApplicationCommandOption{
+			Options: []command.Option{
 				userOption("first", "The first person", true),
 				userOption("second", "The second person", true),
 			},
@@ -42,7 +42,7 @@ func init() {
 		&command.Command{
 			Name:        "marry",
 			Description: "Take your ship to the next level 💍",
-			Options: []*discordgo.ApplicationCommandOption{
+			Options: []command.Option{
 				userOption("user", "Who to propose to", true),
 			},
 			GuildOnly: true,
@@ -57,7 +57,7 @@ func init() {
 		&command.Command{
 			Name:        "marriagecert",
 			Description: "Show a marriage certificate",
-			Options: []*discordgo.ApplicationCommandOption{
+			Options: []command.Option{
 				userOption("user", "Whose marriage to show (defaults to yours)", false),
 			},
 			GuildOnly: true,

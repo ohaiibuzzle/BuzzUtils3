@@ -14,6 +14,9 @@ type configration struct {
 	UserAgent       string `yaml:"user_agent"`          // User agent for HTTP requests
 	InferenceServer string `yaml:"inference_server"`    // Inference server URL
 	PixivToken      string `yaml:"pixiv_refresh_token"` // Pixiv OAuth refresh token
+
+	SpotifyClientID     string `yaml:"spotify_client_id"`     // Spotify app credentials, for Spotify links in music
+	SpotifyClientSecret string `yaml:"spotify_client_secret"` // (optional; leave empty to disable)
 }
 
 var config *configration
@@ -32,6 +35,11 @@ func LoadConfig(configFile string) error {
 	err = decoder.Decode(config)
 	if err != nil {
 		return err
+	}
+
+	// Lets a local run point at a classifier outside docker-compose
+	if server, ok := os.LookupEnv("INFERENCE_SERVER"); ok {
+		config.InferenceServer = server
 	}
 
 	log.Default().Println("Using prefix: " + config.BotPrefix)

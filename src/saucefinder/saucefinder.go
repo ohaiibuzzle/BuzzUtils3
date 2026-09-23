@@ -1,7 +1,7 @@
 package saucefinder
 
 import (
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 )
 
@@ -21,14 +21,14 @@ func init() {
 	command.RegisterMessageActions(
 		&command.MessageAction{
 			Name: "Find sauce (SauceNAO)",
-			Handler: func(c *command.Ctx, target *discordgo.Message) {
+			Handler: func(c *command.Ctx, target *discord.Message) {
 				c.Defer()
 				sauceNaoMessage(c, target)
 			},
 		},
 		&command.MessageAction{
 			Name: "Find sauce (IQDB)",
-			Handler: func(c *command.Ctx, target *discordgo.Message) {
+			Handler: func(c *command.Ctx, target *discord.Message) {
 				c.Defer()
 				iqdbMessage(c, target)
 			},

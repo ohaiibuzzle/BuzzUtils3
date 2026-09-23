@@ -4,39 +4,42 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/bot"
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/snowflake/v2"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/saucefinder"
 )
 
-func BuildSaveEmbed(ctx *discordgo.Session, msg *discordgo.Message) *discordgo.MessageEmbed {
-	originChannel, err := ctx.Channel(msg.ChannelID)
-	if err != nil {
-		originChannel = &discordgo.Channel{
-			ID:   msg.ChannelID,
-			Name: "Unknown Channel",
+func BuildSaveEmbed(client *bot.Client, msg *discord.Message) discord.Embed {
+	channelName := "Unknown Channel"
+	var guildID snowflake.ID
+	if msg.GuildID != nil {
+		guildID = *msg.GuildID
+	}
+	if ch, err := command.FetchChannel(client, msg.ChannelID); err == nil {
+		channelName = ch.Name()
+		if gc, ok := ch.(discord.GuildChannel); ok && guildID == 0 {
+			guildID = gc.GuildID()
 		}
 	}
 
-	guildID := msg.GuildID
-	if guildID == "" {
-		guildID = originChannel.GuildID
-	}
 	location := "Direct Messages"
 	jumpGuild := "@me"
-	if guildID != "" {
-		jumpGuild = guildID
-		if originGuild, err := ctx.Guild(guildID); err == nil {
-			location = originGuild.Name
-		} else {
-			location = "Unknown Guild"
+	if guildID != 0 {
+		jumpGuild = guildID.String()
+		location = "Unknown Guild"
+		if guild, ok := client.Caches.Guild(guildID); ok {
+			location = guild.Name
+		} else if guild, err := client.Rest.GetGuild(guildID, false); err == nil {
+			location = guild.Name
 		}
 	}
 
-	embed := &discordgo.MessageEmbed{
+	embed := discord.Embed{
 		Title: "Saved!",
-		Fields: []*discordgo.MessageEmbedField{
-			command.Field("From", fmt.Sprintf("@%s in #%s on %s", msg.Author.Username, originChannel.Name, location), false),
+		Fields: []discord.EmbedField{
+			command.Field("From", fmt.Sprintf("@%s in #%s on %s", msg.Author.Username, channelName, location), false),
 			command.Field("Location", fmt.Sprintf("[Jump to Message](https://discord.com/channels/%s/%s/%s)",
 				jumpGuild, msg.ChannelID, msg.ID), false),
 		},
@@ -47,15 +50,13 @@ func BuildSaveEmbed(ctx *discordgo.Session, msg *discordgo.Message) *discordgo.M
 	}
 
 	if images := saucefinder.GetImagesFromMessages(msg); len(images) > 0 {
-		embed.Image = &discordgo.MessageEmbedImage{
-			URL: images[0],
-		}
+		embed.Image = &discord.EmbedResource{URL: images[0]}
 	}
 
 	// List anything that can't be shown as the embed image
 	var others []string
 	for _, attachment := range msg.Attachments {
-		if !strings.HasPrefix(attachment.ContentType, "image/") {
+		if attachment.ContentType == nil || !strings.HasPrefix(*attachment.ContentType, "image/") {
 			others = append(others, attachment.URL)
 		}
 	}
@@ -69,4 +70,13 @@ func BuildSaveEmbed(ctx *discordgo.Session, msg *discordgo.Message) *discordgo.M
 	}
 
 	return embed
+}
+
+func sendToDM(client *bot.Client, userID snowflake.ID, embed discord.Embed) error {
+	dm, err := client.Rest.CreateDMChannel(userID)
+	if err != nil {
+		return err
+	}
+	_, err = client.Rest.CreateMessage(dm.ID(), discord.MessageCreate{Embeds: []discord.Embed{embed}})
+	return err
 }

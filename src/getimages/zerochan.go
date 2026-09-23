@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 	imageclassifier "github.com/ohaiibuzzle/BuzzUtils3/src/imageClassifier"
 )
@@ -149,21 +149,11 @@ func getZerochanDetail(id int) (*ZerochanDetailedResult, error) {
 	return &detail, nil
 }
 
-func makeZerochanEmbed(result *ZerochanDetailedResult) *discordgo.MessageEmbed {
-	link := "https://www.zerochan.net/" + strconv.Itoa(result.ID)
+func makeZerochanEmbed(result *ZerochanDetailedResult) discord.Embed {
 	title := result.Primary
 	if title == "" {
 		title = "Zerochan result"
 	}
-	return &discordgo.MessageEmbed{
-		Title: title,
-		URL:   link,
-		Fields: []*discordgo.MessageEmbedField{
-			command.Field("Source", result.Source, false),
-			command.CodeField("Tags", strings.Join(result.Tags, ", ")),
-		},
-		Image: &discordgo.MessageEmbedImage{
-			URL: result.Large,
-		},
-	}
+	return imageEmbed(title, "https://www.zerochan.net/"+strconv.Itoa(result.ID),
+		result.Source, strings.Join(result.Tags, ", "), result.Large)
 }

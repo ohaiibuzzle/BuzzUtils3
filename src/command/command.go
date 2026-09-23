@@ -9,17 +9,19 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/bot"
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/omit"
 )
 
 type Command struct {
 	Name        string
 	Aliases     []string // prefix-only aliases
 	Description string
-	Options     []*discordgo.ApplicationCommandOption
+	Options     []Option
 	Subcommands []*Command
 	GuildOnly   bool
-	Permissions int64 // required member permissions, 0 for none
+	Permissions discord.Permissions // required member permissions, 0 for none
 	OwnerOnly   bool
 	PrefixOnly  bool // do not register as a slash command
 	Handler     func(c *Ctx)
@@ -28,7 +30,47 @@ type Command struct {
 // MessageAction is a message context-menu command (right click → Apps).
 type MessageAction struct {
 	Name    string
-	Handler func(c *Ctx, target *discordgo.Message)
+	Handler func(c *Ctx, target *discord.Message)
+}
+
+// Option is a command argument. It is shared by the prefix parser and the slash
+// command definition, so only the option types the dispatcher understands are used:
+// String, Int, Float, Bool, User, Channel and Role.
+type Option struct {
+	Type         discord.ApplicationCommandOptionType
+	Name         string
+	Description  string
+	Required     bool
+	MinValue     *int // Int options only
+	MaxValue     *int // Int options only
+	ChannelTypes []discord.ChannelType
+}
+
+func (o Option) applicationCommandOption() discord.ApplicationCommandOption {
+	switch o.Type {
+	case discord.ApplicationCommandOptionTypeInt:
+		return discord.ApplicationCommandOptionInt{Name: o.Name, Description: o.Description, Required: o.Required, MinValue: o.MinValue, MaxValue: o.MaxValue}
+	case discord.ApplicationCommandOptionTypeFloat:
+		return discord.ApplicationCommandOptionFloat{Name: o.Name, Description: o.Description, Required: o.Required}
+	case discord.ApplicationCommandOptionTypeBool:
+		return discord.ApplicationCommandOptionBool{Name: o.Name, Description: o.Description, Required: o.Required}
+	case discord.ApplicationCommandOptionTypeUser:
+		return discord.ApplicationCommandOptionUser{Name: o.Name, Description: o.Description, Required: o.Required}
+	case discord.ApplicationCommandOptionTypeChannel:
+		return discord.ApplicationCommandOptionChannel{Name: o.Name, Description: o.Description, Required: o.Required, ChannelTypes: o.ChannelTypes}
+	case discord.ApplicationCommandOptionTypeRole:
+		return discord.ApplicationCommandOptionRole{Name: o.Name, Description: o.Description, Required: o.Required}
+	default:
+		return discord.ApplicationCommandOptionString{Name: o.Name, Description: o.Description, Required: o.Required}
+	}
+}
+
+func applicationCommandOptions(options []Option) []discord.ApplicationCommandOption {
+	var out []discord.ApplicationCommandOption
+	for _, o := range options {
+		out = append(out, o.applicationCommandOption())
+	}
+	return out
 }
 
 var (
@@ -83,56 +125,49 @@ func (cmd *Command) subcommand(name string) *Command {
 	return nil
 }
 
-func (cmd *Command) applicationCommand() *discordgo.ApplicationCommand {
-	ac := &discordgo.ApplicationCommand{
-		Type:        discordgo.ChatApplicationCommand,
+func (cmd *Command) applicationCommand() discord.SlashCommandCreate {
+	ac := discord.SlashCommandCreate{
 		Name:        cmd.Name,
 		Description: truncate(cmd.Description, 100),
-		Options:     cmd.Options,
+		Options:     applicationCommandOptions(cmd.Options),
 	}
 	for _, sub := range cmd.Subcommands {
-		ac.Options = append(ac.Options, &discordgo.ApplicationCommandOption{
-			Type:        discordgo.ApplicationCommandOptionSubCommand,
+		ac.Options = append(ac.Options, discord.ApplicationCommandOptionSubCommand{
 			Name:        sub.Name,
 			Description: truncate(sub.Description, 100),
-			Options:     sub.Options,
+			Options:     applicationCommandOptions(sub.Options),
 		})
 	}
 	if cmd.Permissions != 0 {
-		perms := cmd.Permissions
-		ac.DefaultMemberPermissions = &perms
+		ac.DefaultMemberPermissions = omit.NewPtr(cmd.Permissions)
 	}
 	if cmd.GuildOnly {
-		contexts := []discordgo.InteractionContextType{discordgo.InteractionContextGuild}
-		ac.Contexts = &contexts
+		ac.Contexts = []discord.InteractionContextType{discord.InteractionContextTypeGuild}
 	}
 	return ac
 }
 
 // ApplicationCommands returns the slash and context-menu command definitions.
-func ApplicationCommands() []*discordgo.ApplicationCommand {
+func ApplicationCommands() []discord.ApplicationCommandCreate {
 	registryMu.RLock()
 	defer registryMu.RUnlock()
-	var appCommands []*discordgo.ApplicationCommand
+	var appCommands []discord.ApplicationCommandCreate
 	for _, cmd := range commands {
 		if !cmd.PrefixOnly && !cmd.OwnerOnly {
 			appCommands = append(appCommands, cmd.applicationCommand())
 		}
 	}
 	for name := range actions {
-		appCommands = append(appCommands, &discordgo.ApplicationCommand{
-			Type: discordgo.MessageApplicationCommand,
-			Name: name,
-		})
+		appCommands = append(appCommands, discord.MessageCommandCreate{Name: name})
 	}
 	return appCommands
 }
 
 // Sync overwrites the bot's global application commands with everything registered.
 // Global commands can take up to an hour to propagate.
-func Sync(s *discordgo.Session) error {
+func Sync(client *bot.Client) error {
 	appCommands := ApplicationCommands()
-	_, err := s.ApplicationCommandBulkOverwrite(s.State.User.ID, "", appCommands)
+	_, err := client.Rest.SetGlobalCommands(client.ApplicationID, appCommands)
 	if err == nil {
 		log.Default().Printf("Registered %d application commands", len(appCommands))
 	}

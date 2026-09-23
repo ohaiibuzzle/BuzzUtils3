@@ -1,7 +1,7 @@
 package birthdays
 
 import (
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 )
 
@@ -15,9 +15,9 @@ func init() {
 			{
 				Name:        "set",
 				Description: "Set your birthday",
-				Options: []*discordgo.ApplicationCommandOption{
+				Options: []command.Option{
 					{
-						Type:        discordgo.ApplicationCommandOptionString,
+						Type:        discord.ApplicationCommandOptionTypeString,
 						Name:        "date",
 						Description: "Your birthday, formatted as YYYY-MM-DD",
 						Required:    true,
@@ -33,9 +33,9 @@ func init() {
 			{
 				Name:        "get",
 				Description: "Look up a saved birthday",
-				Options: []*discordgo.ApplicationCommandOption{
+				Options: []command.Option{
 					{
-						Type:        discordgo.ApplicationCommandOptionUser,
+						Type:        discord.ApplicationCommandOptionTypeUser,
 						Name:        "user",
 						Description: "The user to look up (defaults to you)",
 						Required:    false,
@@ -46,16 +46,16 @@ func init() {
 			{
 				Name:        "channel",
 				Description: "Set the channel birthday announcements are posted in (requires Manage Server)",
-				Options: []*discordgo.ApplicationCommandOption{
+				Options: []command.Option{
 					{
-						Type:         discordgo.ApplicationCommandOptionChannel,
+						Type:         discord.ApplicationCommandOptionTypeChannel,
 						Name:         "channel",
 						Description:  "The channel to post birthday announcements in",
 						Required:     true,
-						ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText},
+						ChannelTypes: []discord.ChannelType{discord.ChannelTypeGuildText},
 					},
 				},
-				Permissions: discordgo.PermissionManageGuild,
+				Permissions: discord.PermissionManageGuild,
 				Handler:     handleChannel,
 			},
 		},
@@ -65,8 +65,7 @@ func init() {
 func handleSet(c *command.Ctx) {
 	date := c.String("date")
 
-	b := &Birthday{}
-	if err := b.SetBirthday(c.GuildID, c.Author.ID, date); err != nil {
+	if err := SetBirthday(c.GuildID, c.Author.ID, date); err != nil {
 		c.ReplyPrivate("That doesn't look like a valid date. Please use the YYYY-MM-DD format.")
 		return
 	}
@@ -75,8 +74,7 @@ func handleSet(c *command.Ctx) {
 }
 
 func handleRemove(c *command.Ctx) {
-	b := &Birthday{}
-	if err := b.DeleteBirthday(c.GuildID, c.Author.ID); err != nil {
+	if err := DeleteBirthday(c.GuildID, c.Author.ID); err != nil {
 		c.ReplyPrivate("Something went wrong removing your birthday.")
 		return
 	}
@@ -92,8 +90,7 @@ func handleGet(c *command.Ctx) {
 		self = targetID == c.Author.ID
 	}
 
-	b := &Birthday{}
-	date, err := b.GetBirthday(c.GuildID, targetID)
+	date, err := GetBirthday(c.GuildID, targetID)
 	if err != nil {
 		c.ReplyPrivate("Something went wrong looking up that birthday.")
 		return
@@ -108,7 +105,7 @@ func handleGet(c *command.Ctx) {
 		return
 	}
 
-	mention := "<@" + targetID + ">"
+	mention := discord.UserMention(targetID)
 	if date == "" {
 		c.ReplyPrivate(mention + " doesn't have a birthday set.")
 		return
@@ -118,15 +115,15 @@ func handleGet(c *command.Ctx) {
 
 func handleChannel(c *command.Ctx) {
 	channel := c.Channel("channel")
-	if channel.GuildID != c.GuildID || channel.Type != discordgo.ChannelTypeGuildText {
+	if channel.GuildID() != c.GuildID || channel.Type() != discord.ChannelTypeGuildText {
 		c.ReplyPrivate("Please pick a text channel on this server.")
 		return
 	}
 
-	if err := SetGuildChannel(c.GuildID, channel.ID); err != nil {
+	if err := SetGuildChannel(c.GuildID, channel.ID()); err != nil {
 		c.ReplyPrivate("Something went wrong setting the birthday channel.")
 		return
 	}
 
-	c.ReplyPrivate("Birthday announcements will now be posted in <#" + channel.ID + ">.")
+	c.ReplyPrivate("Birthday announcements will now be posted in " + channel.Mention() + ".")
 }

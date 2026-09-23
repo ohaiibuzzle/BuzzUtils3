@@ -8,7 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/snowflake/v2"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/cardimage"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/database"
@@ -21,7 +22,7 @@ const (
 )
 
 type marriage struct {
-	first, second string
+	first, second snowflake.ID
 	start         time.Time
 }
 
@@ -57,12 +58,12 @@ func MarryCommand(c *command.Ctx) {
 		return
 	}
 
-	proposal := &discordgo.MessageSend{
+	proposal := discord.MessageCreate{
 		Content: fmt.Sprintf("%s, you have %d seconds to answer!", target.Mention(), int(proposalTimeout.Seconds())),
-		Embeds: []*discordgo.MessageEmbed{{
+		Embeds: []discord.Embed{{
 			Title:     "Marriage Proposal!",
-			Thumbnail: &discordgo.MessageEmbedThumbnail{URL: ringThumbnail},
-			Fields: []*discordgo.MessageEmbedField{
+			Thumbnail: &discord.EmbedResource{URL: ringThumbnail},
+			Fields: []discord.EmbedField{
 				command.Field("Member", "```"+c.Author.Username+"```", false),
 				command.Field("Has proposed", "```"+target.Username+"```", false),
 				command.Field("to a relationship!", "Will "+target.Username+" accept?", false),
@@ -70,8 +71,8 @@ func MarryCommand(c *command.Ctx) {
 		}},
 	}
 	answer, ok := c.Ask(proposal, target.ID, []command.Button{
-		{Label: "Yes!", Style: discordgo.SuccessButton, Value: "yes"},
-		{Label: "No", Style: discordgo.SecondaryButton, Value: "no"},
+		{Label: "Yes!", Style: discord.ButtonStyleSuccess, Value: "yes"},
+		{Label: "No", Style: discord.ButtonStyleSecondary, Value: "no"},
 	}, proposalTimeout)
 	if !ok {
 		c.Reply("Oh no! They didn't seem to care :(")
@@ -83,7 +84,7 @@ func MarryCommand(c *command.Ctx) {
 	}
 
 	// Check again, in case either side got married while the proposal was open
-	for _, id := range []string{c.Author.ID, target.ID} {
+	for _, id := range []snowflake.ID{c.Author.ID, target.ID} {
 		if m, _ := findMarriage(c.GuildID, id); m != nil {
 			c.Reply("Looks like someone got married in the meantime... 🤔")
 			return
@@ -98,7 +99,7 @@ func MarryCommand(c *command.Ctx) {
 		return
 	}
 
-	sendWithCertificate(c, c.Author, target, fmt.Sprintf(
+	sendWithCertificate(c, c.Author, *target, fmt.Sprintf(
 		"Yay! Congratulations, %s ❤️ %s. We wish they have a sweet time together! 💍",
 		c.Author.Mention(), target.Mention()))
 }
@@ -114,13 +115,14 @@ func DivorceCommand(c *command.Ctx) {
 		return
 	}
 
-	prompt := &discordgo.MessageSend{
-		Content:         fmt.Sprintf("You are in a relationship. You know, the one between <@%s> and <@%s>...\nAre you really sure about this?", m.first, m.second),
-		AllowedMentions: &discordgo.MessageAllowedMentions{},
+	prompt := discord.MessageCreate{
+		Content: fmt.Sprintf("You are in a relationship. You know, the one between %s and %s...\nAre you really sure about this?",
+			discord.UserMention(m.first), discord.UserMention(m.second)),
+		AllowedMentions: &discord.AllowedMentions{},
 	}
 	answer, ok := c.Ask(prompt, c.Author.ID, []command.Button{
-		{Label: "DO IT", Style: discordgo.DangerButton, Value: "yes"},
-		{Label: "Never mind", Style: discordgo.SecondaryButton, Value: "no"},
+		{Label: "DO IT", Style: discord.ButtonStyleDanger, Value: "yes"},
+		{Label: "Never mind", Style: discord.ButtonStyleSecondary, Value: "no"},
 	}, divorceTimeout)
 	if !ok {
 		c.Reply("You did not reply to the request")
@@ -145,7 +147,7 @@ func MarriageCertCommand(c *command.Ctx) {
 	c.Defer()
 	subject := c.Author
 	if u := c.User("user"); u != nil {
-		subject = u
+		subject = *u
 	}
 
 	m, err := findMarriage(c.GuildID, subject.ID)
@@ -162,33 +164,33 @@ func MarriageCertCommand(c *command.Ctx) {
 		return
 	}
 
-	first, err1 := c.Session.User(m.first)
-	second, err2 := c.Session.User(m.second)
+	first, err1 := c.Client.Rest.GetUser(m.first)
+	second, err2 := c.Client.Rest.GetUser(m.second)
 	if err1 != nil || err2 != nil {
 		c.Reply("I couldn't find one of the lovebirds :(")
 		return
 	}
-	sendWithCertificate(c, first, second, fmt.Sprintf("Relationship between %s and %s, which is %s long!",
+	sendWithCertificate(c, *first, *second, fmt.Sprintf("Relationship between %s and %s, which is %s long!",
 		first.Mention(), second.Mention(), humanDuration(time.Since(m.start))))
 }
 
 // sendWithCertificate sends a message with the marriage image, or just the text
 // if the image can't be generated (e.g. missing assets).
-func sendWithCertificate(c *command.Ctx, first, second *discordgo.User, content string) {
-	ms := &discordgo.MessageSend{
+func sendWithCertificate(c *command.Ctx, first, second discord.User, content string) {
+	ms := discord.MessageCreate{
 		Content:         content,
-		AllowedMentions: &discordgo.MessageAllowedMentions{},
+		AllowedMentions: &discord.AllowedMentions{},
 	}
 	img, err := cardimage.Marriage(first, second)
 	if err != nil {
 		log.Default().Println("Error generating marriage image: " + err.Error())
 	} else {
-		ms.Files = []*discordgo.File{{Name: "marriage.png", ContentType: "image/png", Reader: bytes.NewReader(img)}}
+		ms.Files = []*discord.File{discord.NewFile("marriage.png", "", bytes.NewReader(img))}
 	}
 	c.Send(ms)
 }
 
-func findMarriage(guildID, userID string) (*marriage, error) {
+func findMarriage(guildID, userID snowflake.ID) (*marriage, error) {
 	var m marriage
 	var start string
 	err := database.Get().QueryRow(`SELECT FirstSide, SecondSide, StartDate FROM Marriage
@@ -205,11 +207,11 @@ func findMarriage(guildID, userID string) (*marriage, error) {
 	return &m, nil
 }
 
-func partnerMention(m *marriage, userID string) string {
+func partnerMention(m *marriage, userID snowflake.ID) string {
 	if m.first == userID {
-		return "<@" + m.second + ">"
+		return discord.UserMention(m.second)
 	}
-	return "<@" + m.first + ">"
+	return discord.UserMention(m.first)
 }
 
 func humanDuration(d time.Duration) string {

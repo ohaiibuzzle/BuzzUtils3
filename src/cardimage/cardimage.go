@@ -16,7 +16,7 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
 	"golang.org/x/image/draw"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
@@ -38,7 +38,7 @@ var (
 )
 
 // Welcome renders a welcome card with the member's avatar in the middle.
-func Welcome(user *discordgo.User, guildName string) ([]byte, error) {
+func Welcome(user discord.User, guildName string) ([]byte, error) {
 	bg, face, err := loadCommon()
 	if err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func Welcome(user *discordgo.User, guildName string) ([]byte, error) {
 }
 
 // Marriage renders a "marriage certificate" with both avatars and a heart.
-func Marriage(first, second *discordgo.User) ([]byte, error) {
+func Marriage(first, second discord.User) ([]byte, error) {
 	bg, face, err := loadCommon()
 	if err != nil {
 		return nil, err
@@ -120,13 +120,9 @@ func loadImage(path string) (image.Image, error) {
 	return img, err
 }
 
-func fetchAvatar(user *discordgo.User) (image.Image, error) {
-	url := discordgo.EndpointDefaultUserAvatar(user.DefaultAvatarIndex())
-	if user.Avatar != "" {
-		// Always request a static PNG, even for animated avatars
-		url = discordgo.EndpointUserAvatar(user.ID, user.Avatar) + "?size=256"
-	}
-	resp, err := httpClient.Get(url)
+func fetchAvatar(user discord.User) (image.Image, error) {
+	// Animated avatars come back as GIFs; decoding keeps the first frame
+	resp, err := httpClient.Get(user.EffectiveAvatarURL(discord.WithSize(256)))
 	if err != nil {
 		return nil, err
 	}

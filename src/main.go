@@ -27,5 +27,5 @@ func main() {
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
 
-	bot.GetContext().Close()
+	bot.Close()
 }

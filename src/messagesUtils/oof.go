@@ -6,15 +6,15 @@ func OofCommand(c *command.Ctx) {
 	c.DeleteInvocation()
 
 	// Delete the bot's last message in the channel
-	messages, err := c.Session.ChannelMessages(c.ChannelID, 10, "", "", "")
+	messages, err := c.Client.Rest.GetMessages(c.ChannelID, 0, 0, 0, 10)
 	if err != nil {
 		c.ReplyPrivate("Failed to fetch messages.")
 		return
 	}
 
 	for _, message := range messages {
-		if message.Author.ID == c.Session.State.User.ID {
-			if err := c.Session.ChannelMessageDelete(c.ChannelID, message.ID); err != nil {
+		if message.Author.ID == c.Client.ID() {
+			if err := c.Client.Rest.DeleteMessage(c.ChannelID, message.ID); err != nil {
 				c.ReplyPrivate("Failed to delete my last message.")
 				return
 			}

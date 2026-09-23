@@ -3,7 +3,8 @@ package messagesutils
 import (
 	"strings"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/events"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/saucefinder"
 )
@@ -14,13 +15,13 @@ func SaveThisCommand(c *command.Ctx) {
 	saveMessage(c, c.FindMessage(20, saucefinder.MessageHasMedia))
 }
 
-func saveMessage(c *command.Ctx, target *discordgo.Message) {
+func saveMessage(c *command.Ctx, target *discord.Message) {
 	if target == nil {
 		c.ReplyPrivate("Please reply to a message containing media to save it.")
 		return
 	}
 
-	if err := sendToDM(c.Session, c.Author.ID, BuildSaveEmbed(c.Session, target)); err != nil {
+	if err := sendToDM(c.Client, c.Author.ID, BuildSaveEmbed(c.Client, target)); err != nil {
 		c.ReplyPrivate("I couldn't DM you. Do you have DMs from server members turned off?")
 		return
 	}
@@ -29,28 +30,20 @@ func saveMessage(c *command.Ctx, target *discordgo.Message) {
 
 // HandleSaveShortcut saves the latest message with media when someone says
 // ". so I can save", like the old bot did. It returns true if the message was handled.
-func HandleSaveShortcut(s *discordgo.Session, m *discordgo.MessageCreate) bool {
-	if !strings.HasPrefix(m.Content, soICanSave) {
+func HandleSaveShortcut(e *events.MessageCreate) bool {
+	if !strings.HasPrefix(e.Message.Content, soICanSave) {
 		return false
 	}
-	messages, err := s.ChannelMessages(m.ChannelID, 10, m.ID, "", "")
+	client := e.Client()
+	messages, err := client.Rest.GetMessages(e.ChannelID, 0, e.MessageID, 0, 10)
 	if err != nil {
 		return true
 	}
-	for _, message := range messages {
-		if saucefinder.MessageHasMedia(message) {
-			sendToDM(s, m.Author.ID, BuildSaveEmbed(s, message))
+	for i := range messages {
+		if saucefinder.MessageHasMedia(&messages[i]) {
+			sendToDM(client, e.Message.Author.ID, BuildSaveEmbed(client, &messages[i]))
 			break
 		}
 	}
 	return true
-}
-
-func sendToDM(s *discordgo.Session, userID string, embed *discordgo.MessageEmbed) error {
-	dmChannel, err := s.UserChannelCreate(userID)
-	if err != nil {
-		return err
-	}
-	_, err = s.ChannelMessageSendEmbed(dmChannel.ID, embed)
-	return err
 }

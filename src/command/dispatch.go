@@ -9,12 +9,16 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/bot"
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/snowflake/v2"
 )
 
 // HandleMessage dispatches a prefix command. It returns false if the message
 // isn't a known command.
-func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate, prefix string) bool {
+func HandleMessage(e *events.MessageCreate, prefix string) bool {
+	m := e.Message
 	if prefix == "" || !strings.HasPrefix(m.Content, prefix) {
 		return false
 	}
@@ -25,13 +29,15 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate, prefix stri
 	}
 
 	c := &Ctx{
-		Session:   s,
-		Message:   m.Message,
+		Client:    e.Client(),
+		Message:   &m,
 		Command:   cmd,
 		ChannelID: m.ChannelID,
-		GuildID:   m.GuildID,
 		Author:    m.Author,
 		args:      map[string]any{},
+	}
+	if e.GuildID != nil {
+		c.GuildID = *e.GuildID
 	}
 	log.Default().Println("User " + m.Author.Username + " issued command: " + cmd.Name)
 
@@ -56,43 +62,39 @@ func HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate, prefix stri
 	return true
 }
 
-// HandleInteraction dispatches slash commands, message context-menu commands and
-// button clicks.
-func HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	switch i.Type {
-	case discordgo.InteractionMessageComponent:
-		handleComponent(s, i)
-		return
-	case discordgo.InteractionApplicationCommand:
-	default:
-		return
-	}
+// HandleComponent dispatches button clicks.
+func HandleComponent(e *events.ComponentInteractionCreate) {
+	handleComponent(e)
+}
 
-	data := i.ApplicationCommandData()
+// HandleCommand dispatches slash commands and message context-menu commands.
+func HandleCommand(e *events.ApplicationCommandInteractionCreate) {
 	c := &Ctx{
-		Session:     s,
-		Interaction: i.Interaction,
-		ChannelID:   i.ChannelID,
-		GuildID:     i.GuildID,
+		Client:      e.Client(),
+		Interaction: &e.ApplicationCommandInteraction,
+		Author:      e.User(),
 		args:        map[string]any{},
 	}
-	if i.Member != nil {
-		c.Author = i.Member.User
-	} else {
-		c.Author = i.User
+	if ch := e.Channel(); ch.MessageChannel != nil {
+		c.ChannelID = ch.ID()
+	}
+	if guildID := e.GuildID(); guildID != nil {
+		c.GuildID = *guildID
 	}
 
-	if data.CommandType == discordgo.MessageApplicationCommand {
+	if e.Data.Type() == discord.ApplicationCommandTypeMessage {
+		data := e.MessageCommandInteractionData()
 		registryMu.RLock()
-		act := actions[data.Name]
+		act := actions[data.CommandName()]
 		registryMu.RUnlock()
-		if act == nil || data.Resolved == nil {
+		if act == nil {
 			return
 		}
-		c.target = data.Resolved.Messages[data.TargetID]
-		if c.target != nil && c.target.GuildID == "" {
-			c.target.GuildID = i.GuildID
+		target := data.TargetMessage()
+		if target.GuildID == nil && c.GuildID != 0 {
+			target.GuildID = &c.GuildID
 		}
+		c.target = &target
 		log.Default().Println("User " + c.Author.Username + " used message action: " + act.Name)
 		go func() {
 			defer recoverPanic(c)
@@ -100,8 +102,12 @@ func HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}()
 		return
 	}
+	if e.Data.Type() != discord.ApplicationCommandTypeSlash {
+		return
+	}
 
-	cmd := Lookup(data.Name)
+	data := e.SlashCommandInteractionData()
+	cmd := Lookup(data.CommandName())
 	if cmd == nil {
 		return
 	}
@@ -111,34 +117,61 @@ func HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	go func() {
 		defer recoverPanic(c)
 		target := cmd
-		options := data.Options
-		if len(cmd.Subcommands) > 0 && len(options) > 0 {
-			target = cmd.subcommand(options[0].Name)
+		if data.SubCommandName != nil {
+			target = cmd.subcommand(*data.SubCommandName)
 			if target == nil {
 				return
 			}
-			options = options[0].Options
 		}
-		for _, opt := range options {
-			switch opt.Type {
-			case discordgo.ApplicationCommandOptionString:
-				c.args[opt.Name] = opt.StringValue()
-			case discordgo.ApplicationCommandOptionInteger:
-				c.args[opt.Name] = opt.IntValue()
-			case discordgo.ApplicationCommandOptionNumber:
-				c.args[opt.Name] = opt.FloatValue()
-			case discordgo.ApplicationCommandOptionBoolean:
-				c.args[opt.Name] = opt.BoolValue()
-			case discordgo.ApplicationCommandOptionUser:
-				c.args[opt.Name] = opt.UserValue(s)
-			case discordgo.ApplicationCommandOptionChannel:
-				c.args[opt.Name] = opt.ChannelValue(s)
-			case discordgo.ApplicationCommandOptionRole:
-				c.args[opt.Name] = opt.RoleValue(s, i.GuildID)
-			}
+		if err := parseSlashArgs(c, target.Options, data); err != nil {
+			c.ReplyPrivate(err.Error())
+			return
 		}
 		run(c, cmd, target)
 	}()
+}
+
+// parseSlashArgs copies the interaction's option values into the context. Channels
+// are looked up in full, since interactions only carry a partial channel.
+func parseSlashArgs(c *Ctx, options []Option, data discord.SlashCommandInteractionData) error {
+	for _, opt := range options {
+		switch opt.Type {
+		case discord.ApplicationCommandOptionTypeString:
+			if v, ok := data.OptString(opt.Name); ok {
+				c.args[opt.Name] = v
+			}
+		case discord.ApplicationCommandOptionTypeInt:
+			if v, ok := data.OptInt(opt.Name); ok {
+				c.args[opt.Name] = int64(v)
+			}
+		case discord.ApplicationCommandOptionTypeFloat:
+			if v, ok := data.OptFloat(opt.Name); ok {
+				c.args[opt.Name] = v
+			}
+		case discord.ApplicationCommandOptionTypeBool:
+			if v, ok := data.OptBool(opt.Name); ok {
+				c.args[opt.Name] = v
+			}
+		case discord.ApplicationCommandOptionTypeUser:
+			if v, ok := data.OptUser(opt.Name); ok {
+				c.args[opt.Name] = &v
+			}
+		case discord.ApplicationCommandOptionTypeChannel:
+			if v, ok := data.OptChannel(opt.Name); ok {
+				ch, err := fetchGuildChannel(c.Client, v.ID)
+				if err != nil {
+					return fmt.Errorf("I couldn't look up that channel.")
+				}
+				c.args[opt.Name] = ch
+			}
+		case discord.ApplicationCommandOptionTypeRole:
+			if v, ok := data.OptRole(opt.Name); ok {
+				v.GuildID = c.GuildID
+				c.args[opt.Name] = &v
+			}
+		}
+	}
+	return nil
 }
 
 func run(c *Ctx, cmd, target *Command) {
@@ -146,7 +179,7 @@ func run(c *Ctx, cmd, target *Command) {
 		c.ReplyPrivate("This command can only be used inside a server.")
 		return
 	}
-	if (cmd.OwnerOnly || target.OwnerOnly) && !IsOwner(c.Session, c.Author.ID) {
+	if (cmd.OwnerOnly || target.OwnerOnly) && !IsOwner(c.Client, c.Author.ID) {
 		c.ReplyPrivate("Only my owner can do that!")
 		return
 	}
@@ -167,13 +200,13 @@ func recoverPanic(c *Ctx) {
 
 var (
 	ownerOnce sync.Once
-	ownerIDs  = map[string]bool{}
+	ownerIDs  = map[snowflake.ID]bool{}
 )
 
 // IsOwner reports whether the user owns the bot application (or is on its team).
-func IsOwner(s *discordgo.Session, userID string) bool {
+func IsOwner(client *bot.Client, userID snowflake.ID) bool {
 	ownerOnce.Do(func() {
-		app, err := s.Application("@me")
+		app, err := client.Rest.GetBotApplicationInfo()
 		if err != nil {
 			log.Default().Println("Error fetching application info: " + err.Error())
 			return
@@ -183,9 +216,7 @@ func IsOwner(s *discordgo.Session, userID string) bool {
 		}
 		if app.Team != nil {
 			for _, member := range app.Team.Members {
-				if member.User != nil {
-					ownerIDs[member.User.ID] = true
-				}
+				ownerIDs[member.User.ID] = true
 			}
 		}
 	})
@@ -203,11 +234,11 @@ func nextToken(s string) (string, string) {
 
 var snowflakeRe = regexp.MustCompile(`^<?[@#]?[!&]?(\d{15,25})>?$`)
 
-func parsePrefixArgs(c *Ctx, options []*discordgo.ApplicationCommandOption, rest string) error {
+func parsePrefixArgs(c *Ctx, options []Option, rest string) error {
 	for idx, opt := range options {
 		var token string
 		isLast := idx == len(options)-1
-		if isLast && opt.Type == discordgo.ApplicationCommandOptionString {
+		if isLast && opt.Type == discord.ApplicationCommandOptionTypeString {
 			token, rest = strings.TrimSpace(rest), ""
 		} else {
 			token, rest = nextToken(rest)
@@ -221,40 +252,40 @@ func parsePrefixArgs(c *Ctx, options []*discordgo.ApplicationCommandOption, rest
 
 		var err error
 		switch opt.Type {
-		case discordgo.ApplicationCommandOptionString:
+		case discord.ApplicationCommandOptionTypeString:
 			c.args[opt.Name] = token
-		case discordgo.ApplicationCommandOptionInteger:
+		case discord.ApplicationCommandOptionTypeInt:
 			var v int64
 			v, err = strconv.ParseInt(token, 10, 64)
 			c.args[opt.Name] = v
-		case discordgo.ApplicationCommandOptionNumber:
+		case discord.ApplicationCommandOptionTypeFloat:
 			var v float64
 			v, err = strconv.ParseFloat(token, 64)
 			c.args[opt.Name] = v
-		case discordgo.ApplicationCommandOptionBoolean:
+		case discord.ApplicationCommandOptionTypeBool:
 			var v bool
 			v, err = strconv.ParseBool(token)
 			c.args[opt.Name] = v
-		case discordgo.ApplicationCommandOptionUser:
-			var u *discordgo.User
-			if id := snowflake(token); id != "" {
-				u, err = c.Session.User(id)
+		case discord.ApplicationCommandOptionTypeUser:
+			var u *discord.User
+			if id := parseSnowflake(token); id != 0 {
+				u, err = c.Client.Rest.GetUser(id)
 			} else {
 				err = fmt.Errorf("not a user")
 			}
 			c.args[opt.Name] = u
-		case discordgo.ApplicationCommandOptionChannel:
-			var ch *discordgo.Channel
-			if id := snowflake(token); id != "" {
-				ch, err = c.fetchChannel(id)
+		case discord.ApplicationCommandOptionTypeChannel:
+			var ch discord.GuildChannel
+			if id := parseSnowflake(token); id != 0 {
+				ch, err = fetchGuildChannel(c.Client, id)
 			} else {
 				err = fmt.Errorf("not a channel")
 			}
 			c.args[opt.Name] = ch
-		case discordgo.ApplicationCommandOptionRole:
-			var role *discordgo.Role
-			if id := snowflake(token); id != "" {
-				role, err = findRole(c.Session, c.GuildID, id)
+		case discord.ApplicationCommandOptionTypeRole:
+			var role *discord.Role
+			if id := parseSnowflake(token); id != 0 {
+				role, err = findRole(c.Client, c.GuildID, id)
 			} else {
 				err = fmt.Errorf("not a role")
 			}
@@ -268,25 +299,43 @@ func parsePrefixArgs(c *Ctx, options []*discordgo.ApplicationCommandOption, rest
 	return nil
 }
 
-func snowflake(token string) string {
+// parseSnowflake extracts the ID from a mention or a raw ID, or returns 0.
+func parseSnowflake(token string) snowflake.ID {
 	m := snowflakeRe.FindStringSubmatch(token)
 	if m == nil {
-		return ""
+		return 0
 	}
-	return m[1]
+	id, err := snowflake.Parse(m[1])
+	if err != nil {
+		return 0
+	}
+	return id
 }
 
-func findRole(s *discordgo.Session, guildID, roleID string) (*discordgo.Role, error) {
-	if role, err := s.State.Role(guildID, roleID); err == nil {
-		return role, nil
+func fetchGuildChannel(client *bot.Client, id snowflake.ID) (discord.GuildChannel, error) {
+	ch, err := FetchChannel(client, id)
+	if err != nil {
+		return nil, err
 	}
-	roles, err := s.GuildRoles(guildID)
+	gc, ok := ch.(discord.GuildChannel)
+	if !ok {
+		return nil, fmt.Errorf("not a guild channel")
+	}
+	return gc, nil
+}
+
+func findRole(client *bot.Client, guildID, roleID snowflake.ID) (*discord.Role, error) {
+	if role, ok := client.Caches.Role(guildID, roleID); ok {
+		return &role, nil
+	}
+	roles, err := client.Rest.GetRoles(guildID)
 	if err != nil {
 		return nil, err
 	}
 	for _, role := range roles {
 		if role.ID == roleID {
-			return role, nil
+			role.GuildID = guildID
+			return &role, nil
 		}
 	}
 	return nil, fmt.Errorf("role not found")
@@ -303,7 +352,7 @@ func usage(prefix string, cmd *Command) string {
 	return "Usage: `" + prefix + cmd.Name + optionUsage(cmd.Options) + "`"
 }
 
-func optionUsage(options []*discordgo.ApplicationCommandOption) string {
+func optionUsage(options []Option) string {
 	var sb strings.Builder
 	for _, opt := range options {
 		if opt.Required {

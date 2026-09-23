@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
 	"golang.org/x/net/html"
@@ -37,18 +37,13 @@ func IqdbCommand(c *command.Ctx) {
 	iqdbMessage(c, c.FindMessage(10, MessageHasImages))
 }
 
-func iqdbMessage(c *command.Ctx, target *discordgo.Message) {
-	if target == nil {
-		c.Reply("Please mention a message containing pasta!")
-		return
-	}
-	images := GetImagesFromMessages(target)
-	if len(images) == 0 {
-		c.Reply("That message doesn't have any images!")
+func iqdbMessage(c *command.Ctx, target *discord.Message) {
+	image, ok := sauceTarget(c, target)
+	if !ok {
 		return
 	}
 
-	matches, err := searchIqdb(images[0])
+	matches, err := searchIqdb(image)
 	if err != nil {
 		log.Default().Println("Error querying IQDB: " + err.Error())
 		c.Reply("IQDB is having a moment :( Try again later")
@@ -60,13 +55,11 @@ func iqdbMessage(c *command.Ctx, target *discordgo.Message) {
 		if !allowExplicit && (match.Rating == "Ero" || match.Rating == "Explicit") {
 			continue
 		}
-		c.ReplyEmbed(&discordgo.MessageEmbed{
-			Title: "Sauce found!",
-			URL:   match.Link,
-			Thumbnail: &discordgo.MessageEmbedThumbnail{
-				URL: match.Thumbnail,
-			},
-			Fields: []*discordgo.MessageEmbedField{
+		c.ReplyEmbed(discord.Embed{
+			Title:     "Sauce found!",
+			URL:       match.Link,
+			Thumbnail: &discord.EmbedResource{URL: match.Thumbnail},
+			Fields: []discord.EmbedField{
 				command.Field("Location", match.Link, false),
 				command.Field("Similarity", match.Similarity, true),
 				command.Field("Rating", match.Rating, true),

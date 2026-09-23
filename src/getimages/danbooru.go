@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 )
 
@@ -56,15 +55,7 @@ func Danbooru(c *command.Ctx) {
 	if post.HasLarge && post.LargeFileURL != "" {
 		image = post.LargeFileURL
 	}
-	c.ReplyEmbed(&discordgo.MessageEmbed{
-		Title: query,
-		URL:   "https://danbooru.donmai.us/posts/" + strconv.Itoa(post.ID),
-		Fields: []*discordgo.MessageEmbedField{
-			command.Field("Source", post.Source, false),
-			command.CodeField("Tags", post.TagString),
-		},
-		Image: &discordgo.MessageEmbedImage{URL: image},
-	})
+	c.ReplyEmbed(imageEmbed(query, "https://danbooru.donmai.us/posts/"+strconv.Itoa(post.ID), post.Source, post.TagString, image))
 	remember(c)
 }
 

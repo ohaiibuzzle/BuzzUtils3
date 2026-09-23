@@ -3,7 +3,8 @@ package command
 import (
 	"testing"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/snowflake/v2"
 )
 
 func TestNextToken(t *testing.T) {
@@ -17,25 +18,25 @@ func TestNextToken(t *testing.T) {
 }
 
 func TestSnowflake(t *testing.T) {
-	for in, want := range map[string]string{
-		"<@123456789012345678>":  "123456789012345678",
-		"<@!123456789012345678>": "123456789012345678",
-		"<@&123456789012345678>": "123456789012345678",
-		"<#123456789012345678>":  "123456789012345678",
-		"123456789012345678":     "123456789012345678",
-		"hello":                  "",
-		"<@12>":                  "",
+	for in, want := range map[string]snowflake.ID{
+		"<@123456789012345678>":  123456789012345678,
+		"<@!123456789012345678>": 123456789012345678,
+		"<@&123456789012345678>": 123456789012345678,
+		"<#123456789012345678>":  123456789012345678,
+		"123456789012345678":     123456789012345678,
+		"hello":                  0,
+		"<@12>":                  0,
 	} {
-		if got := snowflake(in); got != want {
-			t.Errorf("snowflake(%q) = %q, want %q", in, got, want)
+		if got := parseSnowflake(in); got != want {
+			t.Errorf("parseSnowflake(%q) = %d, want %d", in, got, want)
 		}
 	}
 }
 
 func TestParsePrefixArgs(t *testing.T) {
-	options := []*discordgo.ApplicationCommandOption{
-		{Type: discordgo.ApplicationCommandOptionInteger, Name: "amount", Required: true},
-		{Type: discordgo.ApplicationCommandOptionString, Name: "text"},
+	options := []Option{
+		{Type: discord.ApplicationCommandOptionTypeInt, Name: "amount", Required: true},
+		{Type: discord.ApplicationCommandOptionTypeString, Name: "text"},
 	}
 
 	c := &Ctx{args: map[string]any{}}

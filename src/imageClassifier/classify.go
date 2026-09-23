@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/config"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/saucefinder"
@@ -44,7 +44,7 @@ func PredictCommand(c *command.Ctx) {
 	predictMessage(c, target)
 }
 
-func predictMessage(c *command.Ctx, target *discordgo.Message) {
+func predictMessage(c *command.Ctx, target *discord.Message) {
 	if target == nil {
 		c.Reply("Hey, at least give me something to work with!")
 		return
@@ -62,20 +62,18 @@ func predictMessage(c *command.Ctx, target *discordgo.Message) {
 		return
 	}
 
-	embed := &discordgo.MessageEmbed{
-		Title: "Image Classification Results",
-		Color: topCategoryColor(predictions),
-		Thumbnail: &discordgo.MessageEmbedThumbnail{
-			URL: images[0],
-		},
-		Fields: []*discordgo.MessageEmbedField{
+	embed := discord.Embed{
+		Title:     "Image Classification Results",
+		Color:     topCategoryColor(predictions),
+		Thumbnail: &discord.EmbedResource{URL: images[0]},
+		Fields: []discord.EmbedField{
 			command.Field("Drawings", formatFloat(predictions.Drawing), true),
 			command.Field("Hentai", formatFloat(predictions.Hentai), true),
 			command.Field("Neutral", formatFloat(predictions.Neutral), true),
 			command.Field("Porn", formatFloat(predictions.Porn), true),
 			command.Field("Sexy", formatFloat(predictions.Sexy), true),
 		},
-		Footer: &discordgo.MessageEmbedFooter{Text: "Powered by advanced Keyboard Cat technologies"},
+		Footer: &discord.EmbedFooter{Text: "Powered by advanced Keyboard Cat technologies"},
 	}
 
 	c.ReplyEmbed(embed)

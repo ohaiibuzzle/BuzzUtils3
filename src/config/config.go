@@ -34,6 +34,11 @@ func LoadConfig(configFile string) error {
 		return err
 	}
 
+	// Lets a local run point at a classifier outside docker-compose
+	if server, ok := os.LookupEnv("INFERENCE_SERVER"); ok {
+		config.InferenceServer = server
+	}
+
 	log.Default().Println("Using prefix: " + config.BotPrefix)
 	return nil
 }

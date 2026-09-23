@@ -6,5 +6,6 @@ saucenao_api_key: ""
 user_agent: "BuzzUtils3 - username"
 # The classifier service; with docker-compose this is the inference-server container.
 # Leave empty to disable the NSFW filter (images are then only filtered by site ratings).
+# The INFERENCE_SERVER environment variable overrides this (e.g. http://localhost:8000).
 inference_server: "http://inference-server:8000"
 pixiv_refresh_token: ""  # See https://gist.github.com/ZipFile/c9ebedb224406f4f11845ab700124362

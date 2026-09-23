@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 )
 
@@ -21,25 +21,27 @@ func TestApplicationCommandsValid(t *testing.T) {
 	seen := map[string]bool{}
 	messageActions := 0
 	for _, ac := range appCommands {
-		key := string(rune(ac.Type)) + ac.Name
+		key := string(rune(ac.Type())) + ac.CommandName()
 		if seen[key] {
-			t.Errorf("duplicate command %q", ac.Name)
+			t.Errorf("duplicate command %q", ac.CommandName())
 		}
 		seen[key] = true
 
-		if ac.Type == discordgo.MessageApplicationCommand {
+		switch ac := ac.(type) {
+		case discord.MessageCommandCreate:
 			messageActions++
 			if l := len([]rune(ac.Name)); l < 1 || l > 32 {
 				t.Errorf("message command %q name must be 1-32 characters", ac.Name)
 			}
-			continue
+		case discord.SlashCommandCreate:
+			if !slashNamePattern.MatchString(ac.Name) {
+				t.Errorf("invalid slash command name %q", ac.Name)
+			}
+			checkDescription(t, ac.Name, ac.Description)
+			checkOptions(t, ac.Name, ac.Options)
+		default:
+			t.Errorf("unexpected command type %T", ac)
 		}
-
-		if !slashNamePattern.MatchString(ac.Name) {
-			t.Errorf("invalid slash command name %q", ac.Name)
-		}
-		checkDescription(t, ac.Name, ac.Description)
-		checkOptions(t, ac.Name, ac.Options)
 	}
 	if messageActions > 5 {
 		t.Errorf("%d message commands exceeds Discord's limit of 5", messageActions)
@@ -52,26 +54,47 @@ func checkDescription(t *testing.T, name, description string) {
 	}
 }
 
-func checkOptions(t *testing.T, parent string, options []*discordgo.ApplicationCommandOption) {
+func checkOptions(t *testing.T, parent string, options []discord.ApplicationCommandOption) {
 	if len(options) > 25 {
 		t.Errorf("%s: more than 25 options", parent)
 	}
 	optional := false
 	for _, opt := range options {
-		path := parent + " " + opt.Name
-		if !slashNamePattern.MatchString(opt.Name) {
+		path := parent + " " + opt.OptionName()
+		if !slashNamePattern.MatchString(opt.OptionName()) {
 			t.Errorf("invalid option name %q", path)
 		}
-		checkDescription(t, path, opt.Description)
-		if opt.Type == discordgo.ApplicationCommandOptionSubCommand {
-			checkOptions(t, path, opt.Options)
+		checkDescription(t, path, opt.OptionDescription())
+		if sub, ok := opt.(discord.ApplicationCommandOptionSubCommand); ok {
+			checkOptions(t, path, sub.Options)
 			continue
 		}
-		if opt.Required && optional {
+		required := isRequired(opt)
+		if required && optional {
 			t.Errorf("%s: required options must come before optional ones", path)
 		}
-		optional = optional || !opt.Required
+		optional = optional || !required
 	}
+}
+
+func isRequired(opt discord.ApplicationCommandOption) bool {
+	switch o := opt.(type) {
+	case discord.ApplicationCommandOptionString:
+		return o.Required
+	case discord.ApplicationCommandOptionInt:
+		return o.Required
+	case discord.ApplicationCommandOptionFloat:
+		return o.Required
+	case discord.ApplicationCommandOptionBool:
+		return o.Required
+	case discord.ApplicationCommandOptionUser:
+		return o.Required
+	case discord.ApplicationCommandOptionChannel:
+		return o.Required
+	case discord.ApplicationCommandOptionRole:
+		return o.Required
+	}
+	return false
 }
 
 func TestPrefixAliasesResolve(t *testing.T) {

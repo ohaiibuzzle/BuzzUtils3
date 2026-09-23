@@ -1,7 +1,7 @@
 package imageclassifier
 
 import (
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 )
 
@@ -14,7 +14,7 @@ func init() {
 	})
 	command.RegisterMessageActions(&command.MessageAction{
 		Name: "Rate image",
-		Handler: func(c *command.Ctx, target *discordgo.Message) {
+		Handler: func(c *command.Ctx, target *discord.Message) {
 			c.Defer()
 			predictMessage(c, target)
 		},

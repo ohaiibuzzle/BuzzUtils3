@@ -8,277 +8,133 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/bot"
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/snowflake/v2"
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-var databasePath = "runtime/birthdays.db"
-var bday_flagfile = "runtime/birthdays.flag"
-
-var (
-	birthdayCoroutineRunning bool
-	birthdayCoroutineMu      sync.Mutex
-	birthdayStopChan         chan struct{}
+const (
+	databasePath = "runtime/birthdays.db"
+	flagFile     = "runtime/birthdays.flag"
+	dateLayout   = "2006-01-02"
 )
 
-func initDB() (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", databasePath)
-	if err != nil {
-		return nil, err
-	}
+var (
+	db        *sql.DB
+	dbOnce    sync.Once
+	startOnce sync.Once
+)
 
-	// Create the birthdays channel mapping for each guild if it doesn't exist
-	_, err = db.Exec(`
-	CREATE TABLE IF NOT EXISTS BirthdayMessage ([GuildID] INTEGER PRIMARY KEY, [ChannelID] Integer)
-	`)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create the birthdays table if it doesn't exist
-	_, err = db.Exec(`
-	CREATE TABLE IF NOT EXISTS Birthdays ([MemberID] INTEGER, [GuildID] INTEGER, [Birthday] TEXT, PRIMARY KEY ([MemberID],[GuildID]))
-	`)
-	if err != nil {
-		return nil, err
-	}
-	return db, nil
-}
-
-type Birthday struct {
-	ID        int
-	UserID    string
-	GuildID   string
-	Birthdate string
-}
-
-func SetGuildChannel(guildID string, channelID string) error {
-	db, err := initDB()
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	// Insert or update the channel for the guild
-	_, err = db.Exec(`
-	INSERT INTO BirthdayMessage (GuildID, ChannelID) VALUES (?, ?)
-	ON CONFLICT(GuildID) DO UPDATE SET ChannelID=excluded.ChannelID
-	`, guildID, channelID)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func GetGuildChannel(guildID string) (string, error) {
-	db, err := initDB()
-	if err != nil {
-		return "", err
-	}
-	defer db.Close()
-
-	var channelID string
-	err = db.QueryRow("SELECT ChannelID FROM BirthdayMessage WHERE GuildID = ?", guildID).Scan(&channelID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return "", nil // No channel set for this guild
-		}
-		return "", err
-	}
-
-	return channelID, nil
-}
-
-func (b *Birthday) SetBirthday(guildID string, userID string, birthdate string) error {
-	if _, err := time.Parse("2006-01-02", birthdate); err != nil {
-		return err
-	}
-
-	db, err := initDB()
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	// Insert or update the birthday for the user in the guild
-	_, err = db.Exec(`
-	INSERT INTO Birthdays (MemberID, GuildID, Birthday) VALUES (?, ?, ?)
-	ON CONFLICT(MemberID, GuildID) DO UPDATE SET Birthday=excluded.Birthday
-	`, userID, guildID, birthdate)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (b *Birthday) GetBirthday(guildID string, userID string) (string, error) {
-	db, err := initDB()
-	if err != nil {
-		return "", err
-	}
-	defer db.Close()
-
-	var birthdate string
-	err = db.QueryRow("SELECT Birthday FROM Birthdays WHERE MemberID = ? AND GuildID = ?", userID, guildID).Scan(&birthdate)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return "", nil // No birthday set for this user in this guild
-		}
-		return "", err
-	}
-
-	return birthdate, nil
-}
-
-func (b *Birthday) GetAllBirthdays(guildID string) ([]Birthday, error) {
-	db, err := initDB()
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
-	rows, err := db.Query("SELECT MemberID, Birthday FROM Birthdays WHERE GuildID = ?", guildID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var birthdays []Birthday
-	for rows.Next() {
-		var b Birthday
-		b.GuildID = guildID
-		err := rows.Scan(&b.UserID, &b.Birthdate)
+func getDB() *sql.DB {
+	dbOnce.Do(func() {
+		var err error
+		db, err = sql.Open("sqlite3", databasePath)
 		if err != nil {
-			return nil, err
+			log.Fatal("Error opening birthday database: ", err)
 		}
-		birthdays = append(birthdays, b)
-	}
-
-	return birthdays, nil
-}
-
-func (b *Birthday) DeleteBirthday(guildID string, userID string) error {
-	db, err := initDB()
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	_, err = db.Exec("DELETE FROM Birthdays WHERE MemberID = ? AND GuildID = ?", userID, guildID)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func StartBirthdayCoroutine(ctx *discordgo.Session) {
-	birthdayCoroutineMu.Lock()
-	if birthdayCoroutineRunning {
-		birthdayCoroutineMu.Unlock()
-		return // Already running
-	}
-	birthdayCoroutineRunning = true
-	stop := make(chan struct{})
-	birthdayStopChan = stop
-	birthdayCoroutineMu.Unlock()
-
-	go func() {
-		for {
-			// Get the current date
-			now := time.Now()
-			currentDate := now.Format("2006-01-02")
-
-			// Read the flagfile to check if the coroutine has already run today
-			flagData, err := os.ReadFile(bday_flagfile)
-			if err == nil && strings.Contains(string(flagData), currentDate) {
-				// do nothing.
-			} else {
-				// Get all guilds the bot is in
-				guilds, err := ctx.UserGuilds(200, "", "", false)
-				if err != nil {
-					log.Default().Println("Error fetching guilds: " + err.Error())
-				} else {
-					for _, guild := range guilds {
-						// Get all birthdays for the guild
-						birthdays, err := (&Birthday{}).GetAllBirthdays(guild.ID)
-						if err != nil {
-							log.Default().Println("Error fetching birthdays for guild " + guild.ID + ": " + err.Error())
-							continue
-						}
-
-						// Check if any birthdays match today's month and day, regardless of birth year
-						for _, birthday := range birthdays {
-							bDate, err := time.Parse("2006-01-02", birthday.Birthdate)
-							if err != nil {
-								log.Default().Println("Error parsing birthday for user " + birthday.UserID + ": " + err.Error())
-								continue
-							}
-							if bDate.Month() != now.Month() || bDate.Day() != now.Day() {
-								continue
-							}
-
-							// Get the channel to send the birthday message
-							channelID, err := GetGuildChannel(guild.ID)
-							if err != nil {
-								log.Default().Println("Error fetching channel for guild " + guild.ID + ": " + err.Error())
-								continue
-							}
-							if channelID == "" {
-								log.Default().Println("No birthday channel set for guild " + guild.ID)
-								continue
-							}
-
-							// Send the birthday message
-							_, err = ctx.ChannelMessageSend(channelID, "Happy Birthday <@"+birthday.UserID+">! 🎉")
-							if err != nil {
-								log.Default().Println("Error sending birthday message in guild " + guild.ID + ": " + err.Error())
-								continue
-							}
-						}
-					}
-
-					// Writes flagfile to indicate that the coroutine has ran today
-					err = os.WriteFile(bday_flagfile, []byte(currentDate), 0644)
-					if err != nil {
-						log.Default().Println("Error writing flagfile: " + err.Error())
-					}
-				}
-			}
-
-			// Sleep for 24 hours before checking again, unless stopped
-			select {
-			case <-stop:
-				return
-			case <-time.After(24 * time.Hour):
+		// SQLite only allows one writer; serialise access to avoid SQLITE_BUSY
+		db.SetMaxOpenConns(1)
+		for _, stmt := range []string{
+			`CREATE TABLE IF NOT EXISTS BirthdayMessage ([GuildID] INTEGER PRIMARY KEY, [ChannelID] INTEGER)`,
+			`CREATE TABLE IF NOT EXISTS Birthdays ([MemberID] INTEGER, [GuildID] INTEGER, [Birthday] TEXT, PRIMARY KEY ([MemberID],[GuildID]))`,
+		} {
+			if _, err := db.Exec(stmt); err != nil {
+				log.Fatal("Error creating birthday tables: ", err)
 			}
 		}
-	}()
+	})
+	return db
 }
 
-func StopBirthdayCoroutine() {
-	birthdayCoroutineMu.Lock()
-	defer birthdayCoroutineMu.Unlock()
-	if !birthdayCoroutineRunning {
-		return
+func SetGuildChannel(guildID, channelID snowflake.ID) error {
+	_, err := getDB().Exec(`INSERT INTO BirthdayMessage (GuildID, ChannelID) VALUES (?, ?)
+		ON CONFLICT(GuildID) DO UPDATE SET ChannelID = excluded.ChannelID`, guildID, channelID)
+	return err
+}
+
+func SetBirthday(guildID, userID snowflake.ID, birthdate string) error {
+	if _, err := time.Parse(dateLayout, birthdate); err != nil {
+		return err
 	}
-	close(birthdayStopChan)
-	birthdayCoroutineRunning = false
+	_, err := getDB().Exec(`INSERT INTO Birthdays (MemberID, GuildID, Birthday) VALUES (?, ?, ?)
+		ON CONFLICT(MemberID, GuildID) DO UPDATE SET Birthday = excluded.Birthday`, userID, guildID, birthdate)
+	return err
+}
+
+// GetBirthday returns the member's birthday, or "" if they haven't set one.
+func GetBirthday(guildID, userID snowflake.ID) (string, error) {
+	var birthdate string
+	err := getDB().QueryRow(`SELECT Birthday FROM Birthdays WHERE MemberID = ? AND GuildID = ?`, userID, guildID).Scan(&birthdate)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return birthdate, err
+}
+
+func DeleteBirthday(guildID, userID snowflake.ID) error {
+	_, err := getDB().Exec(`DELETE FROM Birthdays WHERE MemberID = ? AND GuildID = ?`, userID, guildID)
+	return err
 }
 
 // ForgetGuild removes all birthday data for a guild the bot has left.
-func ForgetGuild(guildID string) error {
-	db, err := initDB()
-	if err != nil {
+func ForgetGuild(guildID snowflake.ID) error {
+	if _, err := getDB().Exec(`DELETE FROM Birthdays WHERE GuildID = ?`, guildID); err != nil {
 		return err
 	}
-	defer db.Close()
-
-	if _, err = db.Exec("DELETE FROM Birthdays WHERE GuildID = ?", guildID); err != nil {
-		return err
-	}
-	_, err = db.Exec("DELETE FROM BirthdayMessage WHERE GuildID = ?", guildID)
+	_, err := getDB().Exec(`DELETE FROM BirthdayMessage WHERE GuildID = ?`, guildID)
 	return err
+}
+
+// StartBirthdayCoroutine announces today's birthdays once a day. A flag file records
+// the last day announced, so restarts don't announce twice.
+func StartBirthdayCoroutine(client *bot.Client) {
+	startOnce.Do(func() {
+		go func() {
+			for {
+				announceBirthdays(client, time.Now())
+				time.Sleep(24 * time.Hour)
+			}
+		}()
+	})
+}
+
+func announceBirthdays(client *bot.Client, now time.Time) {
+	today := now.Format(dateLayout)
+	if flag, err := os.ReadFile(flagFile); err == nil && strings.Contains(string(flag), today) {
+		return
+	}
+
+	// Birthdays are stored as YYYY-MM-DD; match on MM-DD regardless of birth year
+	rows, err := getDB().Query(`SELECT b.MemberID, m.ChannelID FROM Birthdays b
+		JOIN BirthdayMessage m ON b.GuildID = m.GuildID
+		WHERE substr(b.Birthday, 6) = ?`, now.Format("01-02"))
+	if err != nil {
+		log.Default().Println("Error fetching today's birthdays: " + err.Error())
+		return
+	}
+	type announcement struct{ userID, channelID snowflake.ID }
+	var todays []announcement
+	for rows.Next() {
+		var a announcement
+		if err := rows.Scan(&a.userID, &a.channelID); err != nil {
+			log.Default().Println("Error reading birthday: " + err.Error())
+			continue
+		}
+		todays = append(todays, a)
+	}
+	rows.Close()
+
+	for _, a := range todays {
+		_, err := client.Rest.CreateMessage(a.channelID, discord.MessageCreate{
+			Content: "Happy Birthday " + discord.UserMention(a.userID) + "! 🎉",
+		})
+		if err != nil {
+			log.Default().Println("Error sending birthday message in channel " + a.channelID.String() + ": " + err.Error())
+		}
+	}
+
+	if err := os.WriteFile(flagFile, []byte(today), 0644); err != nil {
+		log.Default().Println("Error writing flagfile: " + err.Error())
+	}
 }

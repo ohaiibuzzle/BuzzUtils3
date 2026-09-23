@@ -7,7 +7,9 @@ import (
 	"log"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/snowflake/v2"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/cardimage"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 	"github.com/ohaiibuzzle/BuzzUtils3/src/database"
@@ -19,22 +21,22 @@ func init() {
 			Name:        "setupwelcome",
 			Description: "Use this channel for welcome messages",
 			GuildOnly:   true,
-			Permissions: discordgo.PermissionAdministrator,
+			Permissions: discord.PermissionAdministrator,
 			Handler:     SetupWelcome,
 		},
 		&command.Command{
 			Name:        "clearwelcome",
 			Description: "Stop sending welcome messages on this server",
 			GuildOnly:   true,
-			Permissions: discordgo.PermissionAdministrator,
+			Permissions: discord.PermissionAdministrator,
 			Handler:     ClearWelcome,
 		},
 	)
 }
 
 func SetupWelcome(c *command.Ctx) {
-	ch, err := c.Session.State.Channel(c.ChannelID)
-	if err != nil || ch.Type != discordgo.ChannelTypeGuildText {
+	ch, err := command.FetchChannel(c.Client, c.ChannelID)
+	if err != nil || ch.Type() != discord.ChannelTypeGuildText {
 		c.ReplyPrivate("Cannot use this channel :<")
 		return
 	}
@@ -59,9 +61,9 @@ func ClearWelcome(c *command.Ctx) {
 }
 
 // OnMemberJoin sends the welcome card when a member joins a configured guild.
-func OnMemberJoin(s *discordgo.Session, m *discordgo.GuildMemberAdd) {
-	var channelID string
-	err := database.Get().QueryRow(`SELECT ChannelID FROM WelcomeMessage WHERE GuildID = ?`, m.GuildID).Scan(&channelID)
+func OnMemberJoin(e *events.GuildMemberJoin) {
+	var channelID snowflake.ID
+	err := database.Get().QueryRow(`SELECT ChannelID FROM WelcomeMessage WHERE GuildID = ?`, e.GuildID).Scan(&channelID)
 	if err == sql.ErrNoRows {
 		return
 	}
@@ -70,39 +72,33 @@ func OnMemberJoin(s *discordgo.Session, m *discordgo.GuildMemberAdd) {
 		return
 	}
 
+	user := e.Member.User
 	guildName := "the server"
-	if guild, err := s.State.Guild(m.GuildID); err == nil {
+	if guild, ok := e.Client().Caches.Guild(e.GuildID); ok {
 		guildName = guild.Name
 	}
 
-	embed := &discordgo.MessageEmbed{
+	embed := discord.Embed{
 		Title: "Ding dong! 🔔",
-		Fields: []*discordgo.MessageEmbedField{
-			command.Field("Member", m.User.Mention()+" (@"+m.User.Username+")", false),
-			command.Field("Account Creation Date", accountCreated(m.User.ID), false),
+		Fields: []discord.EmbedField{
+			command.Field("Member", user.Mention()+" (@"+user.Username+")", false),
+			command.Field("Account Creation Date", user.CreatedAt().UTC().Format(time.RFC1123), false),
 			command.Field("Enjoy your stay!", "👋", false),
 		},
 	}
-	ms := &discordgo.MessageSend{Embeds: []*discordgo.MessageEmbed{embed}}
+	ms := discord.MessageCreate{}
 
-	img, err := cardimage.Welcome(m.User, guildName)
+	img, err := cardimage.Welcome(user, guildName)
 	if err != nil {
 		log.Default().Println("Error generating welcome image: " + err.Error())
-		embed.Thumbnail = &discordgo.MessageEmbedThumbnail{URL: m.User.AvatarURL("256")}
+		embed.Thumbnail = &discord.EmbedResource{URL: user.EffectiveAvatarURL(discord.WithSize(256))}
 	} else {
-		ms.Files = []*discordgo.File{{Name: "welcome.png", ContentType: "image/png", Reader: bytes.NewReader(img)}}
-		embed.Image = &discordgo.MessageEmbedImage{URL: "attachment://welcome.png"}
+		ms.Files = []*discord.File{discord.NewFile("welcome.png", "", bytes.NewReader(img))}
+		embed.Image = &discord.EmbedResource{URL: "attachment://welcome.png"}
 	}
+	ms.Embeds = []discord.Embed{embed}
 
-	if _, err := s.ChannelMessageSendComplex(channelID, ms); err != nil {
+	if _, err := e.Client().Rest.CreateMessage(channelID, ms); err != nil {
 		log.Default().Println("Error sending welcome message: " + err.Error())
 	}
-}
-
-func accountCreated(userID string) string {
-	created, err := discordgo.SnowflakeTimestamp(userID)
-	if err != nil {
-		return "Unknown"
-	}
-	return created.UTC().Format(time.RFC1123)
 }

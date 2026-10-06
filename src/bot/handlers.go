@@ -28,6 +28,7 @@ func RegisterHandlers(client *bot.Client) {
 		bot.NewListenerFunc(OnMessageHandler),
 		bot.NewListenerFunc(command.HandleCommand),
 		bot.NewListenerFunc(command.HandleComponent),
+		bot.NewListenerFunc(command.HandleAutocomplete),
 		bot.NewListenerFunc(welcome.OnMemberJoin),
 		bot.NewListenerFunc(OnMemberRemove),
 		bot.NewListenerFunc(OnGuildLeave),

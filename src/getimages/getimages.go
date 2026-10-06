@@ -15,17 +15,36 @@ import (
 // NSFW filter keeps rejecting results.
 const maxAttempts = 3
 
-var httpClient = &http.Client{Timeout: 15 * time.Second}
+var httpClient = &http.Client{Timeout: 15 * time.Second, Transport: rateLimitedTransport{}}
 
-func tagsOption(description string) []command.Option {
+func tagsOption(description string, autocomplete func(c *command.Ctx, typed string) []discord.AutocompleteChoice) []command.Option {
 	return []command.Option{
 		{
-			Type:        discord.ApplicationCommandOptionTypeString,
-			Name:        "tags",
-			Description: description,
-			Required:    true,
+			Type:         discord.ApplicationCommandOptionTypeString,
+			Name:         "tags",
+			Description:  description,
+			Required:     true,
+			Autocomplete: autocomplete,
 		},
 	}
+}
+
+// danbooruAutocomplete only suggests where the command can be used, since the
+// suggestions themselves can be explicit.
+func danbooruAutocomplete(c *command.Ctx, typed string) []discord.AutocompleteChoice {
+	if !c.IsNSFW() {
+		return nil
+	}
+	return danbooruTags.autocomplete(false)(c, typed)
+}
+
+// withSearched notes which tags a separator-less search was split into, so a
+// wrong guess is visible.
+func withSearched(embed discord.Embed, searched string) discord.Embed {
+	if searched != "" {
+		embed.Footer = &discord.EmbedFooter{Text: "Searched for: " + searched}
+	}
+	return embed
 }
 
 // imageEmbed is the embed shared by the booru-style sites.
@@ -47,21 +66,21 @@ func init() {
 			Name:        "safebooru",
 			Aliases:     []string{"sbrandom", "sbr"},
 			Description: "Random image from SafeBooru",
-			Options:     tagsOption("SafeBooru tags, combine tags using +"),
+			Options:     tagsOption("SafeBooru tags, separated with commas", safebooruTags.autocomplete(true)),
 			Handler:     Safebooru,
 		},
 		&command.Command{
 			Name:        "zerochan",
 			Aliases:     []string{"zcrandom", "zcr"},
 			Description: "Random image from ZeroChan",
-			Options:     tagsOption("ZeroChan tags, combine tags using +"),
+			Options:     tagsOption("ZeroChan tags, separated with commas", zerochanTags.autocomplete(true)),
 			Handler:     Zerochan,
 		},
 		&command.Command{
 			Name:        "danbooru",
 			Aliases:     []string{"danboorurandom", "dbr"},
 			Description: "Random image from Danbooru (NSFW channels only)",
-			Options:     tagsOption("A Danbooru tag"),
+			Options:     tagsOption("A Danbooru tag", danbooruAutocomplete),
 			GuildOnly:   true,
 			Handler:     Danbooru,
 		},
@@ -69,7 +88,7 @@ func init() {
 			Name:        "pixivrandom",
 			Aliases:     []string{"pxr"},
 			Description: "Random image from Pixiv",
-			Options:     tagsOption("What to search for on Pixiv"),
+			Options:     tagsOption("What to search for on Pixiv", nil),
 			Handler:     PixivRandom,
 		},
 		&command.Command{

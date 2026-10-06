@@ -24,7 +24,8 @@ var zerochanBannedTags = []string{"Nipples"}
 // Zerochan 301s tag aliases to the canonical tag (Eula -> Eula Lawrence) but
 // drops the query string, which turns the JSON response into the HTML page.
 var zerochanClient = &http.Client{
-	Timeout: httpClient.Timeout,
+	Timeout:   httpClient.Timeout,
+	Transport: httpClient.Transport,
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 10 {
 			return errors.New("stopped after 10 redirects")
@@ -71,6 +72,13 @@ func Zerochan(c *command.Ctx) {
 	filter := !allowNSFW(c)
 
 	results, err := getZerochanResults(query)
+	var searched string
+	if err == nil && len(results) == 0 {
+		if tags := zerochanTags.splitWords(query); tags != nil {
+			searched = strings.Join(tags, ", ")
+			results, err = getZerochanResults(searched)
+		}
+	}
 	if err != nil {
 		log.Default().Println("Error getting Zerochan results: " + err.Error())
 		c.Reply(internetBroke)
@@ -96,7 +104,7 @@ func Zerochan(c *command.Ctx) {
 			continue
 		}
 
-		c.ReplyEmbed(makeZerochanEmbed(detail))
+		c.ReplyEmbed(withSearched(makeZerochanEmbed(detail), searched))
 		remember(c)
 		return
 	}
@@ -112,13 +120,11 @@ func hasBannedTag(tags []string) bool {
 	return false
 }
 
-// getZerochanResults returns the 200 latest posts for "Tag One + Tag Two".
+// getZerochanResults returns the 200 latest posts for "Tag One, Tag Two".
 func getZerochanResults(query string) ([]ZerochanResult, error) {
 	var tags []string
-	for _, tag := range strings.Split(query, "+") {
-		if tag = strings.TrimSpace(tag); tag != "" {
-			tags = append(tags, strings.ReplaceAll(url.PathEscape(tag), "%20", "+"))
-		}
+	for _, tag := range splitTagList(query) {
+		tags = append(tags, strings.ReplaceAll(url.PathEscape(tag), "%20", "+"))
 	}
 
 	req, err := newRequest("https://www.zerochan.net/" + strings.Join(tags, ",") + "?l=200&s=id&json")

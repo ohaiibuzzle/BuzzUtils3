@@ -44,6 +44,8 @@ type Option struct {
 	MinValue     *int // Int options only
 	MaxValue     *int // Int options only
 	ChannelTypes []discord.ChannelType
+	// Autocomplete suggests values for a String option as the user types (slash only).
+	Autocomplete func(c *Ctx, typed string) []discord.AutocompleteChoice
 }
 
 func (o Option) applicationCommandOption() discord.ApplicationCommandOption {
@@ -61,7 +63,7 @@ func (o Option) applicationCommandOption() discord.ApplicationCommandOption {
 	case discord.ApplicationCommandOptionTypeRole:
 		return discord.ApplicationCommandOptionRole{Name: o.Name, Description: o.Description, Required: o.Required}
 	default:
-		return discord.ApplicationCommandOptionString{Name: o.Name, Description: o.Description, Required: o.Required}
+		return discord.ApplicationCommandOptionString{Name: o.Name, Description: o.Description, Required: o.Required, Autocomplete: o.Autocomplete != nil}
 	}
 }
 
@@ -128,13 +130,13 @@ func (cmd *Command) subcommand(name string) *Command {
 func (cmd *Command) applicationCommand() discord.SlashCommandCreate {
 	ac := discord.SlashCommandCreate{
 		Name:        cmd.Name,
-		Description: truncate(cmd.Description, 100),
+		Description: Truncate(cmd.Description, 100),
 		Options:     applicationCommandOptions(cmd.Options),
 	}
 	for _, sub := range cmd.Subcommands {
 		ac.Options = append(ac.Options, discord.ApplicationCommandOptionSubCommand{
 			Name:        sub.Name,
-			Description: truncate(sub.Description, 100),
+			Description: Truncate(sub.Description, 100),
 			Options:     applicationCommandOptions(sub.Options),
 		})
 	}
@@ -174,7 +176,8 @@ func Sync(client *bot.Client) error {
 	return err
 }
 
-func truncate(s string, n int) string {
+// Truncate shortens s to at most n runes, ending with an ellipsis if it was cut.
+func Truncate(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {
 		return s

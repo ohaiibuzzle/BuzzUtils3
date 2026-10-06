@@ -155,8 +155,8 @@ func selectComponents(placeholder string, choices []Choice) func(id string, disa
 		}
 		for _, choice := range choices {
 			menu.Options = append(menu.Options, discord.StringSelectMenuOption{
-				Label:       truncate(choice.Label, 100),
-				Description: truncate(choice.Description, 100),
+				Label:       Truncate(choice.Label, 100),
+				Description: Truncate(choice.Description, 100),
 				Value:       choice.Value,
 			})
 		}
@@ -180,13 +180,13 @@ func Field(name, value string, inline bool) discord.EmbedField {
 		value = "N/A"
 	}
 	return discord.EmbedField{
-		Name:   truncate(name, 256),
-		Value:  truncate(value, 1024),
+		Name:   Truncate(name, 256),
+		Value:  Truncate(value, 1024),
 		Inline: &inline,
 	}
 }
 
 // CodeField builds an embed field whose value is shown in a code block.
 func CodeField(name, value string) discord.EmbedField {
-	return Field(name, "```\n"+truncate(value, 1000)+"\n```", false)
+	return Field(name, "```\n"+Truncate(value, 1000)+"\n```", false)
 }

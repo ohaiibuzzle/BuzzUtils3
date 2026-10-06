@@ -37,11 +37,20 @@ var errNoResults = errors.New("no results")
 
 func Safebooru(c *command.Ctx) {
 	c.Defer()
-	tags := convertSearchTerm(c.String("tags"))
+	query := c.String("tags")
+	tags := convertSearchTerm(query)
 	filter := !allowNSFW(c)
+	var searched string
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		result, err := getSafebooruResult(tags)
+		if errors.Is(err, errNoResults) && searched == "" {
+			if split := safebooruTags.splitWords(query); split != nil {
+				searched = strings.Join(split, ", ")
+				tags = convertSearchTerm(searched)
+				result, err = getSafebooruResult(tags)
+			}
+		}
 		if errors.Is(err, errNoResults) {
 			c.Reply("Your search returned no result :(")
 			return
@@ -55,7 +64,7 @@ func Safebooru(c *command.Ctx) {
 			continue
 		}
 
-		c.ReplyEmbed(makeSafebooruEmbed(result))
+		c.ReplyEmbed(withSearched(makeSafebooruEmbed(result), searched))
 		remember(c)
 		return
 	}
@@ -115,14 +124,11 @@ func getSafebooruPage(tags string, page int, limit int) (*SafebooruPosts, error)
 	return &results, nil
 }
 
-// convertSearchTerm converts "Tag One + Tag Two" into SafeBooru's "tag_one tag_two".
+// convertSearchTerm converts "Tag One, Tag Two" into SafeBooru's "tag_one tag_two".
 func convertSearchTerm(searchTerm string) string {
 	var tags []string
-	for _, tag := range strings.Split(searchTerm, "+") {
-		tag = strings.ToLower(strings.TrimSpace(tag))
-		if tag != "" {
-			tags = append(tags, strings.ReplaceAll(tag, " ", "_"))
-		}
+	for _, tag := range splitTagList(searchTerm) {
+		tags = append(tags, strings.ReplaceAll(strings.ToLower(tag), " ", "_"))
 	}
 	if !strings.Contains(searchTerm, "rating:") {
 		tags = append(tags, "rating:safe")

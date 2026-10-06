@@ -2,6 +2,7 @@ package getimages
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -19,6 +20,21 @@ import (
 // Tags that are always filtered outside NSFW channels. The classifier *should*
 // handle the rest.
 var zerochanBannedTags = []string{"Nipples"}
+
+// Zerochan 301s tag aliases to the canonical tag (Eula -> Eula Lawrence) but
+// drops the query string, which turns the JSON response into the HTML page.
+var zerochanClient = &http.Client{
+	Timeout: httpClient.Timeout,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		if req.URL.RawQuery == "" {
+			req.URL.RawQuery = via[0].URL.RawQuery
+		}
+		return nil
+	},
+}
 
 type ZerochanDetailedResult struct {
 	ID      int      `json:"id"`
@@ -109,7 +125,7 @@ func getZerochanResults(query string) ([]ZerochanResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := httpClient.Do(req)
+	resp, err := zerochanClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

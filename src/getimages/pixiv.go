@@ -32,8 +32,8 @@ const (
 	pixivUserAgent    = "PixivAndroidApp/5.0.234 (Android 11; Pixel 5)"
 	pixivAppAPI       = "https://app-api.pixiv.net"
 
-	// Search offsets past this start failing, so random picks are capped
-	pixivMaxOffset = 1450
+	// Results per page of the app API's search
+	pixivPageSize = 30
 	// Discord's upload limit for bots without boosts
 	pixivMaxUpload = 10 << 20
 )
@@ -84,7 +84,7 @@ func PixivRandom(c *command.Ctx) {
 	}
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		illust, err := pixivSearch(query, rand.Intn(min(total, pixivMaxOffset)))
+		illust, err := pixivSearch(query, rand.Intn(min(total, pixivPageSize*randomMaxPages)))
 		if err != nil {
 			log.Default().Println("Error searching Pixiv: " + err.Error())
 			c.Reply(pixivErrorMessage(err))

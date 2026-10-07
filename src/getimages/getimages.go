@@ -15,6 +15,10 @@ import (
 // NSFW filter keeps rejecting results.
 const maxAttempts = 3
 
+// randomMaxPages caps random picks to the newest pages of results, so large
+// tags don't turn up years-old posts.
+const randomMaxPages = 25
+
 var httpClient = &http.Client{Timeout: 15 * time.Second, Transport: rateLimitedTransport{}}
 
 func tagsOption(description string, autocomplete func(c *command.Ctx, typed string) []discord.AutocompleteChoice) []command.Option {

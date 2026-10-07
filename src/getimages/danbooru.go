@@ -13,10 +13,7 @@ import (
 	"github.com/ohaiibuzzle/BuzzUtils3/src/command"
 )
 
-const (
-	danbooruPageSize = 100
-	danbooruMaxPages = 1000 // Danbooru doesn't allow paging past page 1000
-)
+const danbooruPageSize = 100
 
 type danbooruTag struct {
 	Name      string `json:"name"`
@@ -75,7 +72,7 @@ func searchDanbooru(query string) (*danbooruPost, error) {
 		return nil, errNoResults
 	}
 
-	choice := rand.Intn(min(tag.PostCount, danbooruPageSize*danbooruMaxPages))
+	choice := rand.Intn(min(tag.PostCount, danbooruPageSize*randomMaxPages))
 	var posts []danbooruPost
 	err = getJSON(fmt.Sprintf("https://danbooru.donmai.us/posts.json?tags=%s&limit=%d&page=%d",
 		url.QueryEscape(tag.Name), danbooruPageSize, choice/danbooruPageSize+1), &posts)

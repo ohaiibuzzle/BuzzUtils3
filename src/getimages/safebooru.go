@@ -85,7 +85,7 @@ func getSafebooruResult(tags string) (*SafebooruPost, error) {
 		return nil, errNoResults
 	}
 
-	postIndex := rand.Intn(postCount)
+	postIndex := rand.Intn(min(postCount, safebooruPageSize*randomMaxPages))
 	page, err := getSafebooruPage(tags, postIndex/safebooruPageSize, safebooruPageSize)
 	if err != nil {
 		return nil, err

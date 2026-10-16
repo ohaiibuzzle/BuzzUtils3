@@ -190,3 +190,35 @@ func Field(name, value string, inline bool) discord.EmbedField {
 func CodeField(name, value string) discord.EmbedField {
 	return Field(name, "```\n"+Truncate(value, 1000)+"\n```", false)
 }
+
+// Paginate sends pages as the command's response, with buttons for the author to
+// flip through them. The buttons are disabled once timeout passes without a click.
+func (c *Ctx) Paginate(pages []discord.Embed, timeout time.Duration) {
+	if len(pages) == 1 {
+		c.ReplyEmbed(pages[0])
+		return
+	}
+	var msg *discord.Message
+	send := func(ms discord.MessageCreate) (*discord.Message, error) {
+		if msg == nil {
+			m, err := c.Send(ms)
+			msg = m
+			return m, err
+		}
+		return c.Client.Rest.UpdateMessage(msg.ChannelID, msg.ID, discord.MessageUpdate{Embeds: &ms.Embeds, Components: &ms.Components})
+	}
+	buttons := buttonComponents([]Button{{Label: "◀", Value: "prev"}, {Label: "▶", Value: "next"}})
+	page := 0
+	for {
+		ms := discord.MessageCreate{Embeds: []discord.Embed{pages[page]}}
+		value, ok := ask(c.Client, send, ms, c.Author.ID, buttons, timeout)
+		if !ok {
+			return
+		}
+		if value == "next" {
+			page = (page + 1) % len(pages)
+		} else {
+			page = (page + len(pages) - 1) % len(pages)
+		}
+	}
+}

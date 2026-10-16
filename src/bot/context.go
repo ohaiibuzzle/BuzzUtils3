@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"log"
+	"net/http"
 
 	"github.com/disgoorg/disgo"
 	"github.com/disgoorg/disgo/bot"
@@ -43,7 +44,22 @@ func Start() {
 	if err := botContext.OpenGateway(context.Background()); err != nil {
 		log.Fatal("Error opening connection: ", err)
 	}
+
+	// For `buzzutils3 healthcheck`: healthy while the gateway is connected to Discord
+	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if botContext.Gateway.Status() != gateway.StatusReady {
+			http.Error(w, "gateway not ready", http.StatusServiceUnavailable)
+			return
+		}
+		w.Write([]byte("ok"))
+	})
+	go func() {
+		log.Println("Health server stopped: ", http.ListenAndServe(HealthAddr, nil))
+	}()
 }
+
+// HealthAddr is loopback only, so the health endpoint isn't reachable from outside the container
+const HealthAddr = "127.0.0.1:8080"
 
 func Close() {
 	botContext.Close(context.Background())

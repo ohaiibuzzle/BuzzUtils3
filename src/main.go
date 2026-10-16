@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,6 +12,15 @@ import (
 )
 
 func main() {
+	// The runtime image has no curl, so the Docker healthcheck runs the binary itself
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		resp, err := http.Get("http://" + bot.HealthAddr + "/healthz")
+		if err != nil || resp.StatusCode != http.StatusOK {
+			os.Exit(1)
+		}
+		return
+	}
+
 	if err := config.LoadConfig("runtime/config.yaml"); err != nil {
 		log.Fatal("Error loading runtime/config.yaml: ", err)
 	}

@@ -8,6 +8,12 @@ services:
       - ./runtime:/app/runtime
     depends_on:
       - inference-server
+    healthcheck:
+      test: ["CMD", "./buzzutils3", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   inference-server:
     image: ghcr.io/ohaiibuzzle/buzzutils3-classifier:latest
@@ -18,3 +24,10 @@ services:
       TFLITE_THREADS: "1"
     volumes:
       - ./runtime:/app/runtime:ro
+    # Same as the image's built-in check: GET /healthz on port 8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

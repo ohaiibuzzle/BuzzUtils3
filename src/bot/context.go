@@ -16,12 +16,15 @@ import (
 
 var botContext *bot.Client
 
+var identifyLimiter = &identifyBackoff{stop: make(chan struct{})}
+
 func InitContext() error {
 	var err error
 	botContext, err = disgo.New(config.GetConfig().Token,
 		bot.WithGatewayConfigOpts(
 			gateway.WithIntents(gateway.IntentsNonPrivileged, gateway.IntentGuildMembers, gateway.IntentMessageContent),
 			gateway.WithPresenceOpts(gateway.WithPlayingActivity("in Buzzle's Box. Available on GitHub")),
+			gateway.WithIdentifyRateLimiter(identifyLimiter),
 		),
 		// Only what the commands look up: guild names, channel NSFW flags and
 		// permission overwrites, roles for permission checks, and who is in which
@@ -62,5 +65,6 @@ func Start() {
 const HealthAddr = "127.0.0.1:8080"
 
 func Close() {
+	identifyLimiter.Close(context.Background())
 	botContext.Close(context.Background())
 }

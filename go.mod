@@ -10,7 +10,7 @@ require (
 	github.com/disgoorg/snowflake/v2 v2.0.3
 	github.com/goccy/go-yaml v1.19.2
 	github.com/ncruces/go-sqlite3 v0.36.0
-	golang.org/x/image v0.47.0
+	golang.org/x/image v0.48.0
 	golang.org/x/net v0.62.0
 	golang.org/x/time v0.16.0
 )
@@ -25,6 +25,6 @@ require (
 	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/sasha-s/go-csync v0.0.0-20240107134140-fcbab37b09ad // indirect
 	golang.org/x/crypto v0.58.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 )

@@ -10,7 +10,7 @@ require (
 	github.com/disgoorg/snowflake/v2 v2.0.3
 	github.com/goccy/go-yaml v1.19.2
 	github.com/ncruces/go-sqlite3 v0.37.0
-	golang.org/x/image v0.47.0
+	golang.org/x/image v0.48.0
 	golang.org/x/net v0.63.0
 	golang.org/x/time v0.16.0
 )
